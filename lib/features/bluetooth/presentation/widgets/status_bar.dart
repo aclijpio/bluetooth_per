@@ -14,10 +14,10 @@ class StatusBar extends StatelessWidget {
         Color color;
 
         if (state is BluetoothInitial) {
-          status = 'Initializing...';
+          status = 'Инициализация...';
           color = Colors.grey;
         } else if (state is BluetoothLoading) {
-          status = 'Loading...';
+          status = 'Загрузка...';
           color = Colors.blue;
         } else if (state is BluetoothEnabled) {
           status = 'Bluetooth Enabled';
@@ -70,4 +70,4 @@ class StatusBar extends StatelessWidget {
       },
     );
   }
-} 
+}

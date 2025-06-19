@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../web/web_page.dart';
 import '../bloc/bluetooth_bloc.dart';
 import '../bloc/bluetooth_event.dart';
 import '../bloc/bluetooth_state.dart';
@@ -12,52 +13,50 @@ class BluetoothPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Bluetooth File Transfer'),
-        actions: [
-          BlocBuilder<BluetoothBloc, BluetoothState>(
-            builder: (context, state) {
-              if (state is BluetoothEnabled) {
-                return IconButton(
-                  icon: const Icon(Icons.bluetooth_searching),
-                  onPressed: () => context.read<BluetoothBloc>().add(StartScanning()),
-                );
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-        ],
-      ),
-      body: BlocBuilder<BluetoothBloc, BluetoothState>(
-        builder: (context, state) {
-          return Column(
-            children: [
-              const StatusBar(),
-              if (state is BluetoothDisabled)
-                Center(
-                  child: ElevatedButton(
-                    onPressed: () => context.read<BluetoothBloc>().add(EnableBluetooth()),
-                    child: const Text('Enable Bluetooth'),
-                  ),
-                )
-              else if (state is BluetoothScanning)
-                const DeviceList()
-              else if (state is BluetoothConnected)
-                const FileList()
-              else if (state is BluetoothError)
-                Center(
-                  child: Text(
-                    state.message,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                )
-              else
-                const Center(child: CircularProgressIndicator()),
-            ],
+    return BlocConsumer<BluetoothBloc, BluetoothState>(
+      listener: (context, state) {
+        if (state is BluetoothError) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(state.message)),
           );
-        },
-      ),
+        } else if (state is BluetoothNavigateToWebExport) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => const WebPage(),
+            ),
+          );
+        }
+      },
+      builder: (context, state) {
+        return Scaffold(
+          appBar: AppBar(
+            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+            title: const Text('Bluetooth'),
+            actions: [
+              if (state is BluetoothConnected)
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: () {
+                    context.read<BluetoothBloc>().add(const GetFileList());
+                  },
+                ),
+            ],
+          ),
+          body: SafeArea(
+            child: Column(
+              children: [
+                const StatusBar(),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: state is BluetoothConnected
+                      ? const FileList()
+                      : const DeviceList(),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
-} 
+}

@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
+
 import '../../domain/entities/bluetooth_device.dart';
+import '../../domain/entities/file_download_info.dart';
 
 abstract class BluetoothState extends Equatable {
   const BluetoothState();
@@ -28,14 +30,16 @@ class BluetoothScanning extends BluetoothState {
 class BluetoothConnected extends BluetoothState {
   final BluetoothDeviceEntity device;
   final List<String> fileList;
+  final Map<String, FileDownloadInfo> downloadInfo;
 
   const BluetoothConnected({
     required this.device,
     required this.fileList,
+    this.downloadInfo = const {},
   });
 
   @override
-  List<Object?> get props => [device, fileList];
+  List<Object?> get props => [device, fileList, downloadInfo];
 }
 
 class BluetoothDisconnected extends BluetoothState {}
@@ -73,4 +77,8 @@ class FileDownloaded extends BluetoothState {
 
   @override
   List<Object?> get props => [fileName, filePath];
-} 
+}
+
+class BluetoothNavigateToWebExport extends BluetoothState {
+  const BluetoothNavigateToWebExport();
+}

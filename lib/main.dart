@@ -1,11 +1,11 @@
+import 'package:bluetooth_per/features/bluetooth/presentation/pages/bluetooth_page.dart';
+import 'package:bluetooth_per/features/web/utils/cubit_provider_widget.dart';
+import 'package:bluetooth_per/features/web/utils/repository_provider_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_blue_classic/flutter_blue_classic.dart';
 import 'core/di/injection_container.dart' as di;
-import 'features/bluetooth/data/repositories/bluetooth_repository_impl.dart';
 import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
-import 'features/bluetooth/presentation/bloc/bluetooth_event.dart';
-import 'features/bluetooth/presentation/pages/bluetooth_page.dart';
+import 'features/web/web_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,16 +19,46 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Bluetooth File Transfer',
+      title: 'Quantor Data Transfer',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: BlocProvider(
-        create: (context) => BluetoothBloc(
-          repository: BluetoothRepositoryImpl(FlutterBlueClassic()),
-        )..add(const CheckBluetoothStatus()),
-        child: const BluetoothPage(),
+      home: const HomePage(),
+    );
+  }
+}
+
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: RepositoryProviderWidget(
+        child: CubitProviderWidget(
+          child: BlocProvider(
+            create: (context) => di.sl<BluetoothBloc>(),
+            child: Scaffold(
+              appBar: AppBar(
+                title: const Text('Quantor Data Transfer'),
+                bottom: const TabBar(
+                  tabs: [
+                    Tab(text: 'Bluetooth', icon: Icon(Icons.bluetooth)),
+                    Tab(text: 'Web Export', icon: Icon(Icons.cloud_upload)),
+                  ],
+                ),
+              ),
+              body: const TabBarView(
+                children: [
+                  BluetoothPage(),
+                  WebPage(),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

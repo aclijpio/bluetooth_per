@@ -13,4 +13,4 @@ class BluetoothDeviceEntity extends Equatable {
 
   @override
   List<Object?> get props => [address, name, isConnected];
-} 
+}

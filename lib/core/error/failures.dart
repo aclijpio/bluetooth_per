@@ -32,4 +32,4 @@ class FileOperationFailure extends Failure {
     required String message,
     String? code,
   }) : super(message: message, code: code);
-} 
+}
