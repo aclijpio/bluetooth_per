@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
 import 'package:bluetooth_per/features/web/utils/server_connection.dart';
 import 'package:file_picker/file_picker.dart';
@@ -60,66 +61,49 @@ class _FilePathWidgetState extends State<FilePathWidget> {
     final dbPath = context.read<MainData>().dbPath;
     final hasFile = dbPath.isNotEmpty;
 
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Путь к файлу: '),
-            Expanded(
-              child: Text(
-                dbPath,
-                overflow: TextOverflow.ellipsis,
-              ),
+            const Text(
+              'Путь к файлу:',
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
-            const SizedBox(width: 8),
-            if (hasFile)
-              IconButton(
-                icon: const Icon(Icons.clear),
-                onPressed: () {
-                  setState(() {
-                    context.read<MainData>().dbPath = '';
-                    context.read<MainData>().resetOperationData();
-                  });
-                },
-                tooltip: 'Очистить путь к файлу',
-              ),
-            ElevatedButton(
+            const SizedBox(height: 8),
+            Text(
+              dbPath.isEmpty ? 'Файл не выбран' : dbPath,
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
               onPressed: () async {
-                try {
-                  FilePickerResult? result =
-                      await FilePicker.platform.pickFiles();
-                  if (result != null) {
-                    PlatformFile file = result.files.first;
-                    if (file.path != null) {
-                      setState(() {
-                        context.read<MainData>().dbPath = file.path!;
-                        context.read<MainData>().resetOperationData();
-                      });
-                    }
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.any,
+                );
+                if (result != null && result.files.single.path != null) {
+                  final path = result.files.single.path!;
+                  if (path.toLowerCase().endsWith('.db')) {
+                    setState(() {
+                      context.read<MainData>().dbPath = path;
+                      context.read<MainData>().resetOperationData();
+                    });
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('Выберите файл с расширением .db')),
+                    );
                   }
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error selecting file: $e')),
-                  );
                 }
               },
-              child: const Text('Выбрать файл'),
+              icon: const Icon(Icons.folder_open),
+              label: const Text('Выбрать файл'),
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        ElevatedButton(
-          onPressed: _isDownloading ? null : _downloadDbFromServer,
-          child: _isDownloading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Загрузить с сервера'),
-        ),
-      ],
+      ),
     );
   }
 }

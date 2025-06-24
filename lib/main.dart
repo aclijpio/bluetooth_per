@@ -1,11 +1,11 @@
-import 'package:bluetooth_per/features/bluetooth/presentation/pages/bluetooth_page.dart';
+import 'package:bluetooth_per/features/unified/presentation/pages/unified_page.dart';
 import 'package:bluetooth_per/features/web/utils/cubit_provider_widget.dart';
 import 'package:bluetooth_per/features/web/utils/repository_provider_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
 import 'core/di/injection_container.dart' as di;
 import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
-import 'features/web/web_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,30 +34,11 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: RepositoryProviderWidget(
-        child: CubitProviderWidget(
-          child: BlocProvider(
-            create: (context) => di.sl<BluetoothBloc>(),
-            child: Scaffold(
-              appBar: AppBar(
-                title: const Text('Quantor Data Transfer'),
-                bottom: const TabBar(
-                  tabs: [
-                    Tab(text: 'Bluetooth', icon: Icon(Icons.bluetooth)),
-                    Tab(text: 'Web Export', icon: Icon(Icons.cloud_upload)),
-                  ],
-                ),
-              ),
-              body: const TabBarView(
-                children: [
-                  BluetoothPage(),
-                  WebPage(),
-                ],
-              ),
-            ),
-          ),
+    return RepositoryProviderWidget(
+      child: CubitProviderWidget(
+        child: BlocProvider(
+          create: (context) => di.sl<BluetoothBloc>(),
+          child: const UnifiedPage(),
         ),
       ),
     );

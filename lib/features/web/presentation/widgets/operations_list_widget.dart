@@ -28,14 +28,14 @@ class _OperationsListWidgetState extends State<OperationsListWidget> {
             onChanged: (value) {
               context.read<MainData>().allSelected = value!;
               context.read<OperationsCubit>().globalChangeSelected();
+              context.read<MainData>().allSelectedFlagSynchronize();
+              context.read<OperationsCubit>().emit(LoadedOperationsState());
               setState(() {});
             },
             title: const Row(
               children: [
                 Expanded(child: Text('Дата')),
                 Expanded(child: Text('Скважина')),
-                Expanded(child: Text('Кол-во точек')),
-                Expanded(child: Text('На сервере')),
               ],
             ),
           ),
@@ -56,8 +56,18 @@ class _OperationsListWidgetState extends State<OperationsListWidget> {
                 if (context.read<MainData>().operations.isEmpty) {
                   return const Center(child: Text('Нет операций'));
                 }
-                List<Operation> operations =
-                    context.read<MainData>().operations.reversed.toList();
+                List<Operation> operations = context
+                    .read<MainData>()
+                    .operations
+                    .reversed
+                    .where((op) => op.canSend)
+                    .toList();
+
+                if (operations.isEmpty) {
+                  return const Center(
+                    child: Text('Все операции уже синхронизированы с сервером'),
+                  );
+                }
 
                 return ListView.builder(
                   itemCount: operations.length,
@@ -69,8 +79,10 @@ class _OperationsListWidgetState extends State<OperationsListWidget> {
                       value: operations[index].selected,
                       onChanged: (value) {
                         operations[index].selected = value!;
-                        if (!value)
-                          context.read<MainData>().allSelected = value;
+                        context.read<MainData>().allSelectedFlagSynchronize();
+                        context
+                            .read<OperationsCubit>()
+                            .emit(LoadedOperationsState());
                         setState(() {});
                       },
                       enabled: operations[index].canSend,
@@ -80,17 +92,6 @@ class _OperationsListWidgetState extends State<OperationsListWidget> {
                               child: Text(DateFormat('dd.MM.yyyy HH:mm:ss')
                                   .format(dtStart))),
                           Expanded(child: Text(operations[index].hole)),
-                          Expanded(
-                              child: Text(operations[index].pCnt.toString())),
-                          Expanded(
-                              child: operations[index].canSend
-                                  ? const Text('требуется отправка')
-                                  : const Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Icon(
-                                        Icons.done,
-                                      ),
-                                    )),
                         ],
                       ),
                     );

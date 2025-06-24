@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:typed_data';
+
 import 'package:http/http.dart' as http;
 
 class ServerConnection {
@@ -25,6 +25,27 @@ class ServerConnection {
     } catch (e) {
       return 500;
     }
+  }
+
+  /// То же, что [postReq], но делает до [maxAttempts] повторов
+  /// с экспоненциальной задержкой (1s, 2s, 4s …).
+  static Future<dynamic> postReqRetry(String message, String path,
+      {int maxAttempts = 3}) async {
+    int attempt = 0;
+    while (attempt < maxAttempts) {
+      final resp = await postReq(message, path);
+      if (resp is! int || resp == 200) return resp;
+      // ошибки 5xx / 408 / 524 пробуем ещё раз
+      if (resp >= 500 || resp == 408 || resp == 524) {
+        attempt++;
+        if (attempt < maxAttempts) {
+          await Future.delayed(Duration(seconds: 1 << attempt)); // 1,2,4
+          continue;
+        }
+      }
+      return resp; // статус не требует повторов
+    }
+    return 500;
   }
 
   static Future<dynamic> getReq(String path) async {

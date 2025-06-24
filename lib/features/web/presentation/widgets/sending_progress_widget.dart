@@ -3,7 +3,6 @@ import 'package:bluetooth_per/features/web/presentation/bloc/sending_state.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-
 class SendingProgressWidget extends StatelessWidget {
   const SendingProgressWidget({super.key});
 
@@ -11,16 +10,13 @@ class SendingProgressWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<SendingCubit, SendingState>(builder: (context, state) {
       if (state is ErrorSendingState) {
-        return Text(
-          'Ошибка отправки операций. Код ошибки: ${state.errorCode}',
-          style: const TextStyle(color: Colors.red),
-        );
-      } else {
-        return LinearProgressIndicator(
-          value: state.percent,
-          minHeight: 7,
-        );
+        return Text('Ошибка отправки. Код: ${state.errorCode}',
+            style: const TextStyle(color: Colors.red));
       }
+      if (state is ProcessingSendingState) {
+        return LinearProgressIndicator(value: state.percent, minHeight: 8);
+      }
+      return const SizedBox.shrink();
     });
   }
 }

@@ -1,11 +1,9 @@
-
 import 'dart:convert';
 
 import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
 import 'package:bluetooth_per/features/web/data/source/operation.dart';
 
 import 'server_connection.dart';
-
 
 class WebLayer {
   static const String constUuid = "595a31f7-ad09-43ff-9a04-1c29bfe795cb";
@@ -22,7 +20,7 @@ class WebLayer {
     // return OperListResponse(
     //     200, [1733207145, 1733207215, 1733212108, 1733387339, 1733739234]);
     dynamic response =
-        await ServerConnection.postReq(reqStr, 'get_archive_list')
+        await ServerConnection.postReqRetry(reqStr, 'get_archive_list')
             .timeout(const Duration(seconds: 15), onTimeout: () {
       return 408;
     });
@@ -49,8 +47,9 @@ class WebLayer {
     //print(reqStr);
     // await Future.delayed(Duration(seconds: 2)); //!debug
     // return 200;
-    dynamic response = await ServerConnection.postReq(reqStr, 'send_archive')
-        .timeout(const Duration(seconds: 100040), onTimeout: () {
+    dynamic response =
+        await ServerConnection.postReqRetry(reqStr, 'send_archive')
+            .timeout(const Duration(seconds: 100040), onTimeout: () {
       return 408;
     });
 

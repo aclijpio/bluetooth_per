@@ -1,18 +1,17 @@
+import 'dart:io' show Platform;
+
 import 'package:bluetooth_per/features/web/data/source/device_info.dart';
 import 'package:bluetooth_per/features/web/data/source/operation.dart';
 import 'package:bluetooth_per/features/web/data/source/point.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite/sqflite.dart' as mobile;
-import 'dart:io' show Platform;
-
+import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as desktop;
 
 class DbLayer {
   static Database? _db;
   static String curDbPath = '';
 
-  /// Получает экземпляр базы данных, инициализируя его при необходимости
   static Future<Database> getDb(String newPath) async {
     if ((newPath != curDbPath) && (_db != null)) {
       await _db?.close();
@@ -37,10 +36,11 @@ class DbLayer {
     if (_isDesktop()) {
       desktop.sqfliteFfiInit();
       desktop.databaseFactory = desktop.databaseFactoryFfi;
-      return await desktop.databaseFactory.openDatabase(dbPath);
+      return await desktop.databaseFactory.openDatabase(dbPath,
+          options: desktop.OpenDatabaseOptions(readOnly: true));
     } else {
       // Инициализация для Android/iOS/Web
-      return await mobile.openDatabase(dbPath);
+      return await mobile.openDatabase(dbPath, readOnly: true);
     }
   }
 
@@ -51,7 +51,8 @@ class DbLayer {
 
   static Future<DeviceInfo> getDeviceInfo(Database db) async {
     try {
-      final res = await db.query('tmc_agregat', columns: ['serNumber', 'stNumber']);
+      final res =
+          await db.query('tmc_agregat', columns: ['serNumber', 'stNumber']);
       return res.isEmpty
           ? DeviceInfo(serialNum: '', gosNum: '')
           : DeviceInfo.fromMap(res.first);
@@ -63,9 +64,19 @@ class DbLayer {
   static Future<List<Operation>> getOperationList(Database db) async {
     try {
       final res = await db.query('tmc_operations', columns: [
-        'DT', 'max_pressure', 'Organization', 'work_type', 'NGDU',
-        'Field', 'Department', 'Cluster', 'Hole', 'brigade',
-        'lat', 'lon', 'equipment'
+        'DT',
+        'max_pressure',
+        'Organization',
+        'work_type',
+        'NGDU',
+        'Field',
+        'Department',
+        'Cluster',
+        'Hole',
+        'brigade',
+        'lat',
+        'lon',
+        'equipment'
       ]);
       return res.map((e) => Operation.fromMap(e)).toList();
     } catch (e) {
@@ -73,7 +84,8 @@ class DbLayer {
     }
   }
 
-  static Future<List<Point>> getOperationPoints(Database db, int dt1, int dt2) async {
+  static Future<List<Point>> getOperationPoints(
+      Database db, int dt1, int dt2) async {
     try {
       final res = await db.query(
         'tmc_points',

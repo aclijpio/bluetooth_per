@@ -1,4 +1,3 @@
-
 import 'package:bluetooth_per/features/web/data/source/point.dart';
 
 class Operation {

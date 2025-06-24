@@ -1,11 +1,8 @@
 import 'package:bluetooth_per/features/web/presentation/bloc/sending_state.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../data/repositories/main_data.dart';
 import '../../data/source/operation.dart';
-
 
 class SendingCubit extends Cubit<SendingState> {
   MainData _mainData;

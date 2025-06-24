@@ -1,11 +1,12 @@
+import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
 import '../../domain/entities/bluetooth_device.dart';
 import '../../domain/entities/file_download_info.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
 import 'bluetooth_event.dart';
 import 'bluetooth_state.dart';
-import 'package:flutter/services.dart';
-import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
 
 class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
   final BluetoothRepository repository;
@@ -57,26 +58,49 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
     StartScanning event,
     Emitter<BluetoothState> emit,
   ) async {
-    emit(BluetoothLoading());
-    final result = await repository.scanForDevices();
-    result.fold(
-      (failure) => emit(BluetoothError(failure.message)),
-      (devices) {
-        emit(BluetoothScanning(devices));
-        // Автоподключение к Quantor
-        BluetoothDeviceEntity? quantor;
-        try {
-          quantor = devices.firstWhere(
-            (d) => (d.name ?? '').toLowerCase().contains('quantor'),
-          );
-        } catch (_) {
-          quantor = null;
-        }
-        if (quantor != null) {
-          add(ConnectToDevice(quantor));
-        }
-      },
-    );
+    const maxAttempts = 3;
+    int attempt = 0;
+    List<BluetoothDeviceEntity> foundDevices = [];
+
+    while (attempt < maxAttempts && foundDevices.isEmpty) {
+      emit(BluetoothLoading());
+      final result = await repository.scanForDevices();
+
+      bool shouldBreak = false;
+
+      result.fold(
+        (failure) {
+          emit(BluetoothError(failure.message));
+          shouldBreak = true;
+        },
+        (devices) {
+          foundDevices = devices;
+          emit(BluetoothScanning(devices));
+
+          final quantorDevices = devices
+              .where((d) => (d.name ?? '').toLowerCase().contains('quantor'))
+              .toList();
+
+          if (quantorDevices.length == 1) {
+            add(ConnectToDevice(quantorDevices.first));
+            shouldBreak = true;
+          } else if (quantorDevices.isNotEmpty) {
+            shouldBreak = true;
+          }
+        },
+      );
+
+      if (shouldBreak) break;
+
+      attempt++;
+      if (attempt < maxAttempts && foundDevices.isEmpty) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+    }
+
+    if (foundDevices.isEmpty) {
+      emit(const BluetoothError('Устройства не найдены, повторите поиск'));
+    }
   }
 
   Future<void> _onStopScanning(
@@ -97,10 +121,15 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
       if (!emit.isDone) {
         result.fold(
           (failure) => emit(BluetoothError(failure.message)),
-          (success) => emit(BluetoothConnected(
-            device: event.device,
-            fileList: [],
-          )),
+          (success) {
+            emit(BluetoothConnected(
+              device: event.device,
+              fileList: [],
+            ));
+
+            // Автоматически запрашиваем список файлов
+            add(const GetFileList());
+          },
         );
       }
     } catch (e) {
@@ -184,7 +213,8 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
     );
 
     print('Starting download for ${event.fileName}');
-    final updatedDownloadInfo = Map<String, FileDownloadInfo>.from(downloadInfo);
+    final updatedDownloadInfo =
+        Map<String, FileDownloadInfo>.from(downloadInfo);
 
     emit(BluetoothConnected(
       device: connectedState.device,
@@ -196,45 +226,16 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
       event.fileName,
       connectedState.device,
       onProgress: (progress, fileSize) {
-        print('Progress callback received: $progress, size: $fileSize');
-        final bytesReceived =
-            fileSize != null ? (progress * fileSize).round() : 0;
-        downloadInfo[event.fileName] = downloadInfo[event.fileName]!.copyWith(
+        add(UpdateDownloadProgress(
+          fileName: event.fileName,
           progress: progress,
           fileSize: fileSize,
-          bytesReceived: bytesReceived,
-          lastUpdateTime: DateTime.now(),
-        );
-        final updatedDownloadInfo =
-            Map<String, FileDownloadInfo>.from(downloadInfo);
-
-        emit(BluetoothConnected(
-          device: connectedState.device,
-          fileList: connectedState.fileList,
-          downloadInfo: updatedDownloadInfo,
         ));
       },
       onComplete: (filePath) async {
-        print('Download completed for ${event.fileName}');
-        downloadInfo[event.fileName] = downloadInfo[event.fileName]!.copyWith(
-          isDownloading: false,
-          isCompleted: true,
-          endTime: DateTime.now(),
+        add(CompleteDownload(
+          fileName: event.fileName,
           filePath: filePath,
-        );
-
-        if (event.fileName.toLowerCase().endsWith('.db')) {
-          print('Setting database path in MainData: $filePath');
-          mainData.dbPath = filePath;
-        }
-
-        final updatedDownloadInfo =
-            Map<String, FileDownloadInfo>.from(downloadInfo);
-
-        emit(BluetoothConnected(
-          device: connectedState.device,
-          fileList: connectedState.fileList,
-          downloadInfo: updatedDownloadInfo,
         ));
 
         try {
@@ -247,34 +248,33 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
 
     result.fold(
       (failure) {
-        print('Download failed for ${event.fileName}: ${failure.message}');
+        add(UpdateDownloadProgress(
+          fileName: event.fileName,
+          progress: downloadInfo[event.fileName]?.progress ?? 0,
+          fileSize: downloadInfo[event.fileName]?.fileSize,
+        ));
+
         downloadInfo[event.fileName] = downloadInfo[event.fileName]!.copyWith(
           error: failure.message,
           isDownloading: false,
         );
-        final updatedDownloadInfo =
-            Map<String, FileDownloadInfo>.from(downloadInfo);
 
         emit(BluetoothConnected(
           device: connectedState.device,
           fileList: connectedState.fileList,
-          downloadInfo: updatedDownloadInfo,
+          downloadInfo: Map<String, FileDownloadInfo>.from(downloadInfo),
         ));
       },
       (success) {
-        print('Download succeeded for ${event.fileName}');
         downloadInfo[event.fileName] = downloadInfo[event.fileName]!.copyWith(
           isDownloading: false,
           isCompleted: true,
           endTime: DateTime.now(),
         );
-        final updatedDownloadInfo =
-            Map<String, FileDownloadInfo>.from(downloadInfo);
-
         emit(BluetoothConnected(
           device: connectedState.device,
           fileList: connectedState.fileList,
-          downloadInfo: updatedDownloadInfo,
+          downloadInfo: Map<String, FileDownloadInfo>.from(downloadInfo),
         ));
       },
     );
@@ -340,6 +340,8 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
       final updatedDownloadInfo =
           Map<String, FileDownloadInfo>.from(downloadInfo);
 
+      emit(FileDownloading(fileName: event.fileName, progress: event.progress));
+
       emit(BluetoothConnected(
         device: connectedState.device,
         fileList: connectedState.fileList,
@@ -375,7 +377,8 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
         downloadInfo: updatedDownloadInfo,
       ));
 
-      if (event.fileName.toLowerCase().endsWith('.db')) {
+      if (event.fileName.toLowerCase().endsWith('.db') ||
+          event.fileName.toLowerCase().endsWith('.db.gz')) {
         mainData.dbPath = event.filePath;
         mainData.resetOperationData();
         emit(BluetoothNavigateToWebExport());

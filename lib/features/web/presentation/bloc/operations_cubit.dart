@@ -4,23 +4,33 @@ import '../../data/repositories/main_data.dart';
 import '../../data/source/operation.dart';
 import 'operations_state.dart';
 
-
 class OperationsCubit extends Cubit<OperationsState> {
   final MainData _mainData;
+  bool _cancelRequested = false;
+
   OperationsCubit(this._mainData) : super(EmptyOperationsState());
 
   getOperations() async {
     emit(LoadingOperationsState());
+    _cancelRequested = false;
     OperStatus status = await _mainData.awaitOperations();
 
     if (status == OperStatus.ok) {
       for (Operation op in _mainData.operations) {
+        if (_cancelRequested) {
+          emit(EmptyOperationsState());
+          return;
+        }
         status = await _mainData.awaitOperationPoints(op);
         if (status != OperStatus.ok) break;
       }
     }
 
     if (status == OperStatus.ok) {
+      if (_cancelRequested) {
+        emit(EmptyOperationsState());
+        return;
+      }
       status = await _mainData.awaitOperationsCanSendStatus();
     }
 
@@ -36,7 +46,10 @@ class OperationsCubit extends Cubit<OperationsState> {
     emit(EmptyOperationsState());
   }
 
-  globalChangeSelected() => _mainData.globalChangeSelected();
+  globalChangeSelected() {
+    _mainData.globalChangeSelected();
+    emit(LoadedOperationsState());
+  }
 
   webTest() {
     _mainData.webCmdTest();
@@ -44,5 +57,10 @@ class OperationsCubit extends Cubit<OperationsState> {
 
   loadingTest() {
     emit(LoadingOperationsState());
+  }
+
+  void cancelGetOperations() {
+    _cancelRequested = true;
+    emit(EmptyOperationsState());
   }
 }

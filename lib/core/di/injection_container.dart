@@ -1,15 +1,16 @@
 import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
-import 'package:get_it/get_it.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
+import 'package:get_it/get_it.dart';
+import 'package:logger/logger.dart';
+
 import '../../features/bluetooth/data/repositories/bluetooth_repository_impl.dart';
+import '../../features/bluetooth/data/transport/bluetooth_transport.dart';
 import '../../features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import '../../features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
-import 'package:logger/logger.dart';
 
 final sl = GetIt.instance;
 
 Future<void> init() async {
-  // Features - Bluetooth
   sl.registerFactory(
     () => BluetoothBloc(
       repository: sl(),
@@ -17,17 +18,19 @@ Future<void> init() async {
     ),
   );
 
-  sl.registerLazySingleton<BluetoothRepository>(
-    () => BluetoothRepositoryImpl(sl()),
-  );
-
-  // Core
   sl.registerLazySingleton(() => FlutterBlueClassic());
 
-  // Web Feature
+  sl.registerLazySingleton(() => BluetoothTransport(sl()));
+
+  sl.registerLazySingleton<BluetoothRepository>(
+    () => BluetoothRepositoryImpl(
+      sl<BluetoothTransport>(),
+      sl<FlutterBlueClassic>(),
+    ),
+  );
+
   sl.registerLazySingleton(() => MainData());
 
-  // Core
   sl.registerLazySingleton(() => Logger(
         printer: PrettyPrinter(
           methodCount: 2,

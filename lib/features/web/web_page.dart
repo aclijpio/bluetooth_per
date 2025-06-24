@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:bluetooth_per/features/web/presentation/bloc/operations_cubit.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/sending_cubit.dart';
 import 'package:bluetooth_per/features/web/presentation/widgets/device_info_widget.dart';
@@ -16,10 +14,6 @@ class WebPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('Экспорт данных Quantor'),
-      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(8.0),

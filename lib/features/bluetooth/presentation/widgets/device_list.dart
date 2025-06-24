@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
 import '../../domain/entities/file_download_info.dart';
 import '../bloc/bluetooth_bloc.dart';
 import '../bloc/bluetooth_event.dart';
@@ -23,27 +24,22 @@ class DeviceList extends StatelessWidget {
         print('Building DeviceList with state: ${state.runtimeType}');
 
         if (state is BluetoothLoading) {
-          return const Center(child: CircularProgressIndicator());
+          return const SizedBox.shrink();
         } else if (state is BluetoothError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('Error: ${state.message}'),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () =>
-                      context.read<BluetoothBloc>().add(const StartScanning()),
-                  child: const Text('Try Again'),
-                ),
-              ],
-            ),
-          );
+          return const SizedBox.shrink();
         } else if (state is BluetoothScanning) {
+          final quantorDevices = state.devices
+              .where((d) => (d.name ?? '').toLowerCase().contains('quantor'))
+              .toList();
+
+          if (quantorDevices.isEmpty) {
+            return const SizedBox.shrink();
+          }
+
           return ListView.builder(
-            itemCount: state.devices.length,
+            itemCount: quantorDevices.length,
             itemBuilder: (context, index) {
-              final device = state.devices[index];
+              final device = quantorDevices[index];
               return ListTile(
                 title: Text(device.name ?? 'Unknown Device'),
                 subtitle: Text(device.address),
@@ -57,7 +53,8 @@ class DeviceList extends StatelessWidget {
             },
           );
         } else if (state is BluetoothConnected) {
-          print('Connected state: device=${state.device.name}, files=${state.fileList.length}, downloads=${state.downloadInfo.length}');
+          print(
+              'Connected state: device=${state.device.name}, files=${state.fileList.length}, downloads=${state.downloadInfo.length}');
           return Column(
             children: [
               Card(
@@ -71,96 +68,40 @@ class DeviceList extends StatelessWidget {
                             'Connected to: ${state.device.name ?? 'Unknown Device'}'),
                         subtitle: Text(state.device.address),
                       ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          ElevatedButton.icon(
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Get File List'),
-                            onPressed: () {
-                              print('Get file list button pressed');
-                              context.read<BluetoothBloc>().add(GetFileList());
-                            },
-                          ),
-                          ElevatedButton.icon(
-                            icon: const Icon(Icons.bluetooth_disabled),
-                            label: const Text('Disconnect'),
-                            onPressed: () {
-                              print('Disconnect button pressed');
-                              context
-                                  .read<BluetoothBloc>()
-                                  .add(DisconnectFromDevice(state.device));
-                            },
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
               ),
               if (state.fileList.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 16.0, horizontal: 24.0),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).primaryColor,
-                        foregroundColor: Colors.white,
-                        textStyle: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: state.fileList.length,
+                  itemBuilder: (context, index) {
+                    final fileName = state.fileList[index];
+                    final downloadInfo = state.downloadInfo[fileName];
+                    print(
+                        'Building file item: $fileName, downloadInfo: ${downloadInfo?.progress}');
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 8.0,
+                        vertical: 4.0,
                       ),
-                      onPressed: () {
-                        final firstFile = state.fileList.first;
-                        context
-                            .read<BluetoothBloc>()
-                            .add(DownloadFile(firstFile));
-                      },
-                      child: const Text('Скачать файл'),
-                    ),
-                  ),
-                ),
-              if (state.fileList.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Text(
-                      'Нет доступных файлов. Press "Get File List" для обновления.'),
-                ),
-              if (state.fileList.isNotEmpty)
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: state.fileList.length,
-                    itemBuilder: (context, index) {
-                      final fileName = state.fileList[index];
-                      final downloadInfo = state.downloadInfo[fileName];
-                      print(
-                          'Building file item: $fileName, downloadInfo: ${downloadInfo?.progress}');
-                      return Card(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 8.0,
-                          vertical: 4.0,
-                        ),
-                        child: Column(
-                          children: [
-                            ListTile(
-                              title: Text(fileName),
-                              trailing: _buildTrailingWidget(
-                                context,
-                                fileName,
-                                downloadInfo,
-                              ),
+                      child: Column(
+                        children: [
+                          ListTile(
+                            title: Text(fileName),
+                            trailing: _buildTrailingWidget(
+                              context,
+                              fileName,
+                              downloadInfo,
                             ),
-                            FileDownloadProgressBar(fileName: fileName),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+                          ),
+                          FileDownloadProgressBar(fileName: fileName),
+                        ],
+                      ),
+                    );
+                  },
                 ),
             ],
           );
@@ -196,20 +137,7 @@ class DeviceList extends StatelessWidget {
             ),
           );
         }
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('Select a device to connect'),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () =>
-                    context.read<BluetoothBloc>().add(const StartScanning()),
-                child: const Text('Start Scanning'),
-              ),
-            ],
-          ),
-        );
+        return const SizedBox.shrink();
       },
     );
   }
@@ -220,12 +148,7 @@ class DeviceList extends StatelessWidget {
     FileDownloadInfo? downloadInfo,
   ) {
     if (downloadInfo == null) {
-      return IconButton(
-        icon: const Icon(Icons.download),
-        onPressed: () => context.read<BluetoothBloc>().add(
-              DownloadFile(fileName),
-            ),
-      );
+      return const SizedBox.shrink();
     }
 
     if (downloadInfo.isDownloading) {
@@ -239,39 +162,13 @@ class DeviceList extends StatelessWidget {
     }
 
     if (downloadInfo.isCompleted) {
-      return PopupMenuButton<String>(
-        icon: const Icon(Icons.info_outline),
-        itemBuilder: (context) => [
-          PopupMenuItem(
-            value: 'info',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('File Size: ${downloadInfo.formattedFileSize}'),
-                Text('Download Time: ${downloadInfo.downloadDuration}'),
-                if (downloadInfo.filePath != null)
-                  Text('Location: ${downloadInfo.filePath}'),
-              ],
-            ),
-          ),
-        ],
-      );
+      return const SizedBox.shrink();
     }
 
     if (downloadInfo.error != null) {
-      return IconButton(
-        icon: const Icon(Icons.error_outline, color: Colors.red),
-        onPressed: () => context.read<BluetoothBloc>().add(
-              DownloadFile(fileName),
-            ),
-      );
+      return const SizedBox.shrink();
     }
 
-    return IconButton(
-      icon: const Icon(Icons.download),
-      onPressed: () => context.read<BluetoothBloc>().add(
-            DownloadFile(fileName),
-          ),
-    );
+    return const SizedBox.shrink();
   }
 }

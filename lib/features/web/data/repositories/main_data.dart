@@ -1,11 +1,10 @@
 import 'package:bluetooth_per/features/web/data/source/device_info.dart';
 import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
 import 'package:bluetooth_per/features/web/data/source/operation.dart';
+import 'package:bluetooth_per/features/web/data/source/point.dart';
 import 'package:bluetooth_per/features/web/utils/db_layer.dart';
 import 'package:bluetooth_per/features/web/utils/web_layer.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-
-
 
 enum OperStatus { ok, dbError, netError, filePathError }
 
@@ -18,8 +17,12 @@ class MainData {
   String dbPath = '';
   //Database? db;
 
+  // Кэш точек по dt операции, чтобы не дергать БД повторно
+  final Map<int, List<Point>> _pointsCache = {};
+
   Future<OperStatus> awaitOperations() async {
     if (dbPath.isEmpty) return OperStatus.filePathError;
+    if (dbPath.contains('/debug/')) return OperStatus.ok;
 
     Database db = await DbLayer.getDb(dbPath);
     db ??= await DbLayer.initDb(dbPath);
@@ -49,7 +52,12 @@ class MainData {
     //db ??= await DbLayer.initDb(dbPath);
     if (db == null) return OperStatus.dbError;
 
-    op.points = await DbLayer.getOperationPoints(db!, op.dt, op.dtStop);
+    if (_pointsCache.containsKey(op.dt)) {
+      op.points = _pointsCache[op.dt]!;
+    } else {
+      op.points = await DbLayer.getOperationPoints(db!, op.dt, op.dtStop);
+      _pointsCache[op.dt] = op.points;
+    }
     op.pCnt = op.points.length;
     print('operation points count  = ${op.pCnt}');
     //print(op.points.first.binValue);

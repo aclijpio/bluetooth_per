@@ -14,7 +14,7 @@ class DeviceInfoWidget extends StatelessWidget {
       builder: (context, state) {
         if (state is EmptyOperationsState) {
           return Text('Выберите файл для загрузки');
-        } else if (state is ErrorOperationsState) {
+        } /*else if (state is ErrorOperationsState) {
           //ok, dbError, netError, filePathError
           return Text(
             state.errorCode == 1
@@ -26,8 +26,8 @@ class DeviceInfoWidget extends StatelessWidget {
                         : 'При загрузке файла произошла ошибка. Код ошибки: ${state.errorCode}',
             style: const TextStyle(color: Colors.red),
           );
-        } else {
-          return Row(
+        } */else {
+          return Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
