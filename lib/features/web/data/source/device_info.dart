@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+
 
 class DeviceInfo {
   final String serialNum;

@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+
 import '../../domain/entities/bluetooth_device.dart';
 
 abstract class BluetoothEvent extends Equatable {

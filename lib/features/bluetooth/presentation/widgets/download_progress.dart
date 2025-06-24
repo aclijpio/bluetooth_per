@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../domain/entities/file_download_info.dart';
 import '../bloc/bluetooth_bloc.dart';
 import '../bloc/bluetooth_event.dart';
-import '../../domain/entities/file_download_info.dart';
 
 class DownloadProgress extends StatelessWidget {
   final FileDownloadInfo downloadInfo;
