@@ -5,6 +5,7 @@ import 'package:flutter/scheduler.dart';
 
 import '../bloc/device_flow_cubit.dart';
 import '../bloc/device_flow_state.dart';
+import '../bloc/bluetooth_bloc.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/device_tile.dart';
 import '../widgets/archive_table.dart';
@@ -25,7 +26,7 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => DeviceFlowCubit(),
+      create: (ctx) => DeviceFlowCubit(bluetoothBloc: ctx.read<BluetoothBloc>()),
       child: Scaffold(
         body: SafeArea(
           child: Padding(

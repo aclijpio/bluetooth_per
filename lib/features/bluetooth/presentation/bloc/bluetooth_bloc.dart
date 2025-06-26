@@ -412,9 +412,9 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
       ));
     }
     await for (final status in repository.requestArchiveUpdate()) {
-      if (status == 'ARCHIVE_UPDATING') {
+      if (status == 'UPDATING_ACHIVE') {
         add(const ArchiveUpdating());
-      } else if (status == 'ARCHIVE_READY') {
+      } else if (status == 'ACRHIVE_UPDATED') {
         add(const ArchiveReady());
         break;
       }
@@ -524,7 +524,7 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
         emit(ArchiveUpdatingState(
             device: targetDevice, fileList: const [], downloadInfo: const {}));
         await for (final status in repository.requestArchiveUpdate()) {
-          if (status == 'ARCHIVE_READY') {
+          if (status == 'ACRHIVE_UPDATED') {
             _log('Archive is ready');
             break;
           }

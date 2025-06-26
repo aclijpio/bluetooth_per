@@ -1,9 +1,9 @@
 import 'package:bluetooth_per/features/web/data/source/device_info.dart';
-import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
-import 'package:bluetooth_per/features/web/data/source/operation.dart';
-import 'package:bluetooth_per/features/web/data/source/point.dart';
-import 'package:bluetooth_per/features/web/utils/db_layer.dart';
-import 'package:bluetooth_per/features/web/utils/web_layer.dart';
+import 'package:bluetooth_per/features/bluetooth/data/source/oper_list_response.dart';
+import 'package:bluetooth_per/features/bluetooth/data/source/operation.dart';
+import 'package:bluetooth_per/features/bluetooth/data/source/point.dart';
+import 'package:bluetooth_per/features/bluetooth/utils/db_layer.dart';
+import 'package:bluetooth_per/features/bluetooth/utils/web_layer.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 enum OperStatus { ok, dbError, netError, filePathError }
@@ -81,6 +81,13 @@ class MainData {
   }
 
   Future<int> awaitSendingOperation(Operation op) async {
+    // Получить недостающие точки с сервера
+    final missingPoints = await WebLayer.fetchMissingPoints(deviceInfo.serialNum, op.dt);
+    if (missingPoints.isNotEmpty) {
+      // Оставить только недостающие точки (по dt)
+      op.points = op.points.where((p) => missingPoints.contains(p.dt)).toList();
+      op.pCnt = op.points.length;
+    }
     int resultCode = await WebLayer.exportOperData(deviceInfo.serialNum, op);
     return resultCode;
   }

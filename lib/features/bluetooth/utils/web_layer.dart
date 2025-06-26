@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
-import 'package:bluetooth_per/features/web/data/source/operation.dart';
+import 'package:bluetooth_per/features/bluetooth/data/source/oper_list_response.dart';
+import 'package:bluetooth_per/features/bluetooth/data/source/operation.dart';
 
 import 'server_connection.dart';
 
@@ -58,5 +58,18 @@ class WebLayer {
     } else {
       return 200;
     }
+  }
+
+  static Future<List<int>> fetchMissingPoints(String serial, int operDt) async {
+    final request = json.encode({
+      "serial": serial,
+      "uuid": constUuid,
+      "operDt": operDt,
+    });
+    final response = await ServerConnection.postReqRetry(request, 'get_missing_points');
+    if (response.runtimeType == int) return [];
+    final responseMap = json.decode(response);
+    // Ожидается, что сервер вернёт список индексов или dt точек
+    return (responseMap['missingPoints'] as List).map((e) => e as int).toList();
   }
 }

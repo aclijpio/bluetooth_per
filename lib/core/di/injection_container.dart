@@ -25,7 +25,6 @@ Future<void> init() async {
 
   sl.registerLazySingleton<BluetoothRepository>(
     () => BluetoothRepositoryImpl(
-      sl<BluetoothTransport>(),
       sl<FlutterBlueClassic>(),
     ),
   );

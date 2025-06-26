@@ -1,22 +1,20 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-
+import 'dart:convert';
 import 'package:dartz/dartz.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
 import 'package:path_provider/path_provider.dart';
-
 import '../../../../core/error/failures.dart';
 import '../../domain/entities/bluetooth_device.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../presentation/bloc/bluetooth_bloc.dart';
 import '../protocol/bluetooth_protocol.dart';
-import '../transport/bluetooth_transport.dart';
 
 class BluetoothRepositoryImpl implements BluetoothRepository {
   final FlutterBlueClassic _flutterBlueClassic;
-  final BluetoothTransport _transport;
   BluetoothConnection? _connection;
   StreamSubscription? _scanSubscription;
   StreamSubscription? _connectionSubscription;
@@ -26,7 +24,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   bool _isCancelled = false;
   StreamSubscription? _downloadSubscription;
 
-  BluetoothRepositoryImpl(this._transport, this._flutterBlueClassic);
+  BluetoothRepositoryImpl(this._flutterBlueClassic);
 
   @override
   Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices() async {
@@ -45,14 +43,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
             ),
           );
         }
-        if ((device.name ?? '').toLowerCase().contains('quantor')) {
-          _flutterBlueClassic.stopScan();
-          _scanSubscription?.cancel();
-        }
       });
 
       _flutterBlueClassic.startScan();
-      await Future.delayed(const Duration(seconds: 10));
+      await Future.delayed(const Duration(seconds: 2));
 
       _flutterBlueClassic.stopScan();
       await _scanSubscription?.cancel();
@@ -69,31 +63,41 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     BluetoothConnection? connection;
     int attempts = 0;
     const maxAttempts = 10;
-    // Несколько попыток подключения
+
     while (attempts < maxAttempts) {
       try {
+        print('Connection attempt ${attempts + 1} of $maxAttempts');
         connection = await _flutterBlueClassic.connect(device.address);
 
         if (connection == null) {
+          print(
+              'Connection attempt ${attempts + 1} failed: connection is null');
           attempts++;
           await Future.delayed(const Duration(milliseconds: 500));
           continue;
         }
+
+        print('Connection established: ${connection.isConnected}');
 
         int waitAttempts = 0;
         while (!connection.isConnected && waitAttempts < 3) {
           await Future.delayed(const Duration(milliseconds: 100));
           waitAttempts++;
+          print('Waiting for connection to be ready: attempt $waitAttempts');
         }
 
         if (!connection.isConnected) {
+          print(
+              'Connection attempt ${attempts + 1} failed: connection not ready');
           attempts++;
           await Future.delayed(const Duration(milliseconds: 500));
           continue;
         }
 
+        print('Connection successfully established on attempt ${attempts + 1}');
         return connection;
       } catch (e) {
+        print('Connection attempt ${attempts + 1} failed with error: $e');
         attempts++;
         if (attempts < maxAttempts) {
           await Future.delayed(const Duration(milliseconds: 500));
@@ -101,8 +105,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       }
     }
 
-    throw Exception(
-        'Failed to establish connection after $maxAttempts attempts');
+    throw Exception('Failed to establish connection after $maxAttempts attempts');
   }
 
   @override
@@ -126,8 +129,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         print('Connection failed or not established');
         _isConnecting = false;
         _isConnected = false;
-        return Left(
-            ConnectionFailure(message: 'Failed to establish connection'));
+        return Left(ConnectionFailure(message: 'Failed to establish connection'));
       }
     } catch (e) {
       print('Error connecting to device: $e');
@@ -169,7 +171,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
       final subscription = _connection!.input?.listen(
         (data) {
-          print('d raw data: ${data.length} байтов');
+          print('Received raw data: ${data.length} bytes');
           buffer.addAll(data);
 
           while (buffer.isNotEmpty) {
@@ -180,7 +182,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                     ByteData.view(countBytes.buffer).getInt32(0, Endian.big);
                 buffer = buffer.sublist(4);
                 isReadingFileList = true;
-                print('$expectedFileCount files');
+                print('Expecting $expectedFileCount files');
               } else {
                 break;
               }
@@ -226,10 +228,11 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         },
       );
 
-      _connection!.output.add(BluetoothProtocol.listFilesCmd());
+      print('Sending LIST_FILES request');
+      _sendWriteUTF('LIST_FILES');
 
       final result = await completer.future.timeout(
-        const Duration(seconds: 30),
+        const Duration(seconds: 5),
         onTimeout: () {
           throw TimeoutException('Server response timeout');
         },
@@ -255,6 +258,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         bytes.setAll(2, encoded);
 
         _connection!.output.add(bytes);
+        print('Message sent successfully via writeUTF: $message');
       } catch (e) {
         print('Error sending message via writeUTF: $e');
       }
@@ -278,8 +282,18 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       bytes[1] = length & 0xFF;
       bytes.setAll(2, encoded);
 
+      print('Sending data (hex):');
+      print(
+          'Length bytes: ${bytes[0].toRadixString(16).padLeft(2, '0')} ${bytes[1].toRadixString(16).padLeft(2, '0')}');
+      print(
+          'Data bytes: ${encoded.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+      print(
+          'Full message: ${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+      print('Original message: $message');
+
       if (connection.isConnected) {
         connection.output.add(bytes);
+        print('Message sent successfully via writeUTF: $message');
       } else {
         print('Connection lost before sending message');
       }
@@ -288,13 +302,62 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     }
   }
 
+  void _sendWriteWithConnection(
+      BluetoothConnection connection, String message) {
+    if (!connection.isConnected) {
+      print('Cannot send message: connection is not established');
+      return;
+    }
+
+    try {
+      final encoded = utf8.encode(message);
+      final bytes = Uint8List.fromList(encoded);
+
+      print('Sending data (hex):');
+      print(
+          'Data bytes: ${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+      print('Original message: $message');
+
+      if (connection.isConnected) {
+        connection.output.add(bytes);
+        print('Message sent successfully via write: $message');
+      } else {
+        print('Connection lost before sending message');
+      }
+    } catch (e) {
+      print('Error sending message via write: $e');
+    }
+  }
+
+  void _sendWriteWithResponseWithConnection(
+      BluetoothConnection connection, String message) {
+    if (!connection.isConnected) {
+      print('Cannot send message: connection is not established');
+      return;
+    }
+
+    try {
+      final encoded = utf8.encode(message);
+      final bytes = Uint8List.fromList(encoded);
+
+      print('Sending data (hex):');
+      print(
+          'Data bytes: ${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+      print('Original message: $message');
+
+      if (connection.isConnected) {
+        connection.output.add(bytes);
+        print('Message sent successfully via writeWithResponse: $message');
+      } else {
+        print('Connection lost before sending message');
+      }
+    } catch (e) {
+      print('Error sending message via writeWithResponse: $e');
+    }
+  }
+
   @override
-  Future<Either<Failure, bool>> downloadFile(
-    String fileName,
-    BluetoothDeviceEntity device, {
-    DownloadProgressCallback? onProgress,
-    DownloadCompleteCallback? onComplete,
-  }) async {
+  Future<Either<Failure, bool>> downloadFile(String fileName, BluetoothDeviceEntity device, {DownloadProgressCallback? onProgress, DownloadCompleteCallback? onComplete,}) async {
     try {
       _isCancelled = false;
       print('Starting file download for: $fileName');
@@ -302,14 +365,12 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       final file = File('${directory.path}/$fileName');
       print('Will save file to: ${file.path}');
 
-      bool isDbFile = fileName.toLowerCase().endsWith('.db') ||
-          fileName.toLowerCase().endsWith('.db.gz');
+      bool isDbFile = fileName.toLowerCase().endsWith('.db');
 
       final sink = file.openWrite();
       print('File sink opened');
 
-      // Reuse уже открытое соединение, если оно есть
-      BluetoothConnection? connection = _connection;
+      BluetoothConnection? connection;
       int retryCount = 0;
       const maxRetries = 3;
       int receivedBytes = 0;
@@ -317,6 +378,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       bool isReadingFileData = false;
       List<int> responseBuffer = [];
       List<int> allReceivedData = [];
+      bool isFirstDataChunk = true;
 
       while (retryCount < maxRetries && !_isCancelled) {
         try {
@@ -331,13 +393,13 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
             throw Exception('Connection lost');
           }
 
-          print('Sending GET_FILE request');
-          connection.output.add(BluetoothProtocol.getFileCmd(fileName));
+          print('Sending GET_ACRHIVE request');
+          _sendWriteUTFWithConnection(connection, 'GET_ACRHIVE:$fileName');
 
           final responseCompleter = Completer<bool>();
 
           _downloadSubscription = connection.input?.listen(
-            (data) async {
+            (data) {
               if (_isCancelled) {
                 print('Download cancelled');
                 sink.close();
@@ -375,59 +437,90 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                     isReadingFileData = true;
 
                     if (responseBuffer.isNotEmpty) {
-                      sink.add(responseBuffer);
-                      receivedBytes += responseBuffer.length;
-                      allReceivedData.addAll(responseBuffer);
+                      if (isFirstDataChunk) {
+                        isFirstDataChunk = false;
+                        if (responseBuffer.length > 9) {
+                          final actualData = responseBuffer.sublist(9);
+                          sink.add(actualData);
+                          receivedBytes += actualData.length;
+                          allReceivedData.addAll(actualData);
 
-                      final progress = receivedBytes / expectedFileSize;
-                      onProgress?.call(progress, expectedFileSize);
+                          final progress = receivedBytes / expectedFileSize;
+                          print(
+                              'Progress update: $progress (${receivedBytes}/${expectedFileSize})');
+                          onProgress?.call(progress, expectedFileSize);
+                        }
+                      } else {
+                        sink.add(responseBuffer);
+                        receivedBytes += responseBuffer.length;
+                        allReceivedData.addAll(responseBuffer);
+
+                        final progress = receivedBytes / expectedFileSize;
+                        print(
+                            'Progress update: $progress (${receivedBytes}/${expectedFileSize})');
+                        onProgress?.call(progress, expectedFileSize);
+                      }
                       responseBuffer.clear();
+
+                      if (connection != null && connection.isConnected) {
+                        _sendWriteUTFWithConnection(connection, 'ACK');
+                      }
                     }
                   }
                 }
               } else {
-                sink.add(data);
-                receivedBytes += data.length;
-                allReceivedData.addAll(data);
+                if (isFirstDataChunk) {
+                  isFirstDataChunk = false;
+                  if (data.length > 9) {
+                    final actualData = data.sublist(9);
+                    sink.add(actualData);
+                    receivedBytes += actualData.length;
+                    allReceivedData.addAll(actualData);
 
-                final progress = receivedBytes / expectedFileSize;
+                    final progress = receivedBytes / expectedFileSize;
+                    print(
+                        'Progress update: $progress (${receivedBytes}/${expectedFileSize})');
+                    onProgress?.call(progress, expectedFileSize);
+                  }
+                } else {
+                  sink.add(data);
+                  receivedBytes += data.length;
+                  allReceivedData.addAll(data);
 
-                onProgress?.call(progress, expectedFileSize);
+                  final progress = receivedBytes / expectedFileSize;
+                  print(
+                      'Progress update: $progress (${receivedBytes}/${expectedFileSize})');
+                  onProgress?.call(progress, expectedFileSize);
+                }
 
                 print(
                     'Download progress: $receivedBytes / $expectedFileSize bytes');
 
+                if (receivedBytes % 102400 < data.length &&
+                    connection != null &&
+                    connection.isConnected) {
+                  _sendWriteUTFWithConnection(connection, 'ACK');
+                }
+
                 if (receivedBytes >= expectedFileSize) {
                   print('File download completed successfully');
 
-                  print('Всего bytes received: ${allReceivedData.length}');
-                  print('Размер файла: $expectedFileSize');
+                  print('\nDownload Summary:');
+                  print('Total bytes received: ${allReceivedData.length}');
+                  print('Expected file size: $expectedFileSize');
                   print(
-                      'Первые 20 numbers: ${allReceivedData.take(20).map((b) => b & 0xFF).join(', ')}');
+                      'First 20 numbers: ${allReceivedData.take(20).map((b) => b & 0xFF).join(', ')}');
                   print(
-                      'Последнии 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
+                      'Last 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
 
                   sink.close();
-                  // Соединение оставляем открытым — его закроем при явном Disconnect
+                  connection?.close();
 
-                  // Если файл пришёл в gzip-формате, распаковываем его
-                  String finalPath = file.path;
-                  if (fileName.toLowerCase().endsWith('.gz')) {
-                    try {
-                      final rawFileName = fileName.replaceAll(
-                          RegExp(r'\.gz$', caseSensitive: false), '');
-                      final rawFile = File('${directory.path}/$rawFileName');
-                      await file
-                          .openRead()
-                          .transform(gzip.decoder)
-                          .pipe(rawFile.openWrite());
-                      finalPath = rawFile.path;
-                    } catch (e) {
-                      print('Error while decompressing: $e');
-                    }
+                  if (isDbFile) {
+                    print('Database file downloaded: ${file.path}');
                   }
 
-                  onComplete?.call(finalPath);
+                  onComplete?.call(file.path);
 
                   if (!responseCompleter.isCompleted) {
                     responseCompleter.complete(true);
@@ -441,7 +534,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                 responseCompleter.completeError(error);
               }
             },
-            onDone: () async {
+            onDone: () {
               print(
                   'Connection closed, received $receivedBytes of $expectedFileSize bytes');
               if (receivedBytes < expectedFileSize && !_isCancelled) {
@@ -461,24 +554,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
                 sink.close();
 
-                // Распаковка, если нужно
-                String finalPath = file.path;
-                if (fileName.toLowerCase().endsWith('.gz')) {
-                  try {
-                    final rawFileName = fileName.replaceAll(
-                        RegExp(r'\.gz$', caseSensitive: false), '');
-                    final rawFile = File('${directory.path}/$rawFileName');
-                    await file
-                        .openRead()
-                        .transform(gzip.decoder)
-                        .pipe(rawFile.openWrite());
-                    finalPath = rawFile.path;
-                  } catch (e) {
-                    print('Error while decompressing (onDone): $e');
-                  }
-                }
-
-                onComplete?.call(finalPath);
+                onComplete?.call(file.path);
 
                 if (!responseCompleter.isCompleted) {
                   responseCompleter.complete(true);
@@ -565,11 +641,18 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   }
 
   Future<void> _listenToConnection(BluetoothConnection connection) async {
-    print('Старт...');
+    print('Starting to listen to connection...');
     connection.input?.listen(
       (data) {
+        print('Received data (hex):');
+        print(
+            'Raw bytes: ${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+        print('As string: ${utf8.decode(data)}');
+
         if (data.length >= 2) {
           final response = utf8.decode(data);
+          print('Processing response: $response');
+          print('Response received: $response');
         }
       },
       onDone: () {
@@ -585,42 +668,45 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     );
   }
 
-  /// Запросить обновление архива. Возвращает Stream<String> с состояниями: 'ARCHIVE_UPDATING', 'ARCHIVE_READY'.
   @override
   Stream<String> requestArchiveUpdate() {
-    final controller = StreamController<String>();
     if (_connection == null || !_connection!.isConnected) {
-      controller.add('NOT_CONNECTED');
-      controller.close();
-      return controller.stream;
+      return Stream<String>.error(StateError('Not connected to device'));
     }
-    final completer = Completer<void>();
-    final subscription = _connection!.input?.listen((data) {
-      // debug log of raw packet
-      print('[Repo] recv ${data.length} bytes: ' +
-          data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' '));
 
-      if (BluetoothProtocol.isArchiveUpdating(data)) {
-        print('[Repo] -> ARCHIVE_UPDATING');
-        controller.add('ARCHIVE_UPDATING');
-      } else if (BluetoothProtocol.isArchiveReady(data)) {
-        print('[Repo] -> ARCHIVE_READY');
-        controller.add('ARCHIVE_READY');
-        completer.complete();
-      } else {
-        print('[Repo] unknown message');
-      }
-    }, onError: (e) {
-      controller.addError(e);
-      completer.completeError(e);
-    }, onDone: () {
-      if (!completer.isCompleted) completer.complete();
-    });
-    _connection!.output.add(BluetoothProtocol.updateArchiveCmd());
-    completer.future.whenComplete(() async {
-      await subscription?.cancel();
-      await controller.close();
-    });
+    _sendWriteUTF('UPDATE_ACRHIVE');
+
+    List<int> buffer = [];
+    final controller = StreamController<String>.broadcast();
+
+    _connection!.input?.listen(
+      (data) {
+        buffer.addAll(data);
+        while (buffer.length >= 2) {
+          final len = (buffer[0] << 8) | buffer[1];
+          if (buffer.length < 2 + len) break;
+          final frame = Uint8List.fromList(buffer.sublist(0, 2 + len));
+          buffer = buffer.sublist(2 + len);
+
+          if (BluetoothProtocol.isArchiveUpdating(frame)) {
+            controller.add('UPDATING_ACHIVE');
+          } else if (BluetoothProtocol.isArchiveUpdated(frame)) {
+            controller.add('ACRHIVE_UPDATED');
+            controller.close();
+          } else {
+            try {
+              controller.add(String.fromCharCodes(frame.sublist(2)));
+            } catch (_) {}
+          }
+        }
+      },
+      onError: controller.addError,
+      onDone: () {
+        if (!controller.isClosed) controller.close();
+      },
+      cancelOnError: true,
+    );
+
     return controller.stream;
   }
 }
