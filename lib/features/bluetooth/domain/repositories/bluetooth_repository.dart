@@ -22,4 +22,7 @@ abstract class BluetoothRepository {
   Future<Either<Failure, bool>> cancelDownload();
   Future<Either<Failure, bool>> isBluetoothEnabled();
   Future<Either<Failure, bool>> enableBluetooth();
+
+  /// Запросить обновление архива. Возвращает Stream<String> с состояниями: 'ARCHIVE_UPDATING', 'ARCHIVE_READY'.
+  Stream<String> requestArchiveUpdate();
 }

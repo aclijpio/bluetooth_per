@@ -45,6 +45,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
             ),
           );
         }
+        if ((device.name ?? '').toLowerCase().contains('quantor')) {
+          _flutterBlueClassic.stopScan();
+          _scanSubscription?.cancel();
+        }
       });
 
       _flutterBlueClassic.startScan();
@@ -71,12 +75,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         connection = await _flutterBlueClassic.connect(device.address);
 
         if (connection == null) {
-
           attempts++;
           await Future.delayed(const Duration(milliseconds: 500));
           continue;
         }
-
 
         int waitAttempts = 0;
         while (!connection.isConnected && waitAttempts < 3) {
@@ -85,7 +87,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         }
 
         if (!connection.isConnected) {
-
           attempts++;
           await Future.delayed(const Duration(milliseconds: 500));
           continue;
@@ -277,7 +278,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       bytes[1] = length & 0xFF;
       bytes.setAll(2, encoded);
 
-
       if (connection.isConnected) {
         connection.output.add(bytes);
       } else {
@@ -308,7 +308,8 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       final sink = file.openWrite();
       print('File sink opened');
 
-      BluetoothConnection? connection;
+      // Reuse уже открытое соединение, если оно есть
+      BluetoothConnection? connection = _connection;
       int retryCount = 0;
       const maxRetries = 3;
       int receivedBytes = 0;
@@ -407,7 +408,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                       'Последнии 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
 
                   sink.close();
-                  connection?.close();
+                  // Соединение оставляем открытым — его закроем при явном Disconnect
 
                   // Если файл пришёл в gzip-формате, распаковываем его
                   String finalPath = file.path;
@@ -569,7 +570,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       (data) {
         if (data.length >= 2) {
           final response = utf8.decode(data);
-
         }
       },
       onDone: () {
@@ -583,5 +583,44 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         _connection = null;
       },
     );
+  }
+
+  /// Запросить обновление архива. Возвращает Stream<String> с состояниями: 'ARCHIVE_UPDATING', 'ARCHIVE_READY'.
+  @override
+  Stream<String> requestArchiveUpdate() {
+    final controller = StreamController<String>();
+    if (_connection == null || !_connection!.isConnected) {
+      controller.add('NOT_CONNECTED');
+      controller.close();
+      return controller.stream;
+    }
+    final completer = Completer<void>();
+    final subscription = _connection!.input?.listen((data) {
+      // debug log of raw packet
+      print('[Repo] recv ${data.length} bytes: ' +
+          data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' '));
+
+      if (BluetoothProtocol.isArchiveUpdating(data)) {
+        print('[Repo] -> ARCHIVE_UPDATING');
+        controller.add('ARCHIVE_UPDATING');
+      } else if (BluetoothProtocol.isArchiveReady(data)) {
+        print('[Repo] -> ARCHIVE_READY');
+        controller.add('ARCHIVE_READY');
+        completer.complete();
+      } else {
+        print('[Repo] unknown message');
+      }
+    }, onError: (e) {
+      controller.addError(e);
+      completer.completeError(e);
+    }, onDone: () {
+      if (!completer.isCompleted) completer.complete();
+    });
+    _connection!.output.add(BluetoothProtocol.updateArchiveCmd());
+    completer.future.whenComplete(() async {
+      await subscription?.cancel();
+      await controller.close();
+    });
+    return controller.stream;
   }
 }

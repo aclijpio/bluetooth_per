@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../domain/entities/bluetooth_device.dart';
 import '../../domain/entities/file_download_info.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
+import '../../../../core/utils/db_update_checker.dart';
 import 'bluetooth_event.dart';
 import 'bluetooth_state.dart';
 
@@ -12,6 +13,11 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
   final BluetoothRepository repository;
   final MainData mainData;
   static const platform = MethodChannel('bluetooth_per/files');
+
+  void _log(String message) {
+    // ignore: avoid_print
+    print('[BluetoothBloc] $message');
+  }
 
   BluetoothBloc({
     required this.repository,
@@ -28,6 +34,10 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
     on<CancelDownload>(_onCancelDownload);
     on<UpdateDownloadProgress>(_onUpdateDownloadProgress);
     on<CompleteDownload>(_onCompleteDownload);
+    on<RequestArchiveUpdate>(_onRequestArchiveUpdate);
+    on<ArchiveUpdating>(_onArchiveUpdating);
+    on<ArchiveReady>(_onArchiveReady);
+    on<RunFullWorkflow>(_onRunFullWorkflow);
   }
 
   Future<void> _onCheckBluetoothStatus(
@@ -126,9 +136,8 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
               device: event.device,
               fileList: [],
             ));
-
-            // Автоматически запрашиваем список файлов
-            add(const GetFileList());
+            // После подключения инициируем запрос обновления архива
+            add(const RequestArchiveUpdate());
           },
         );
       }
@@ -340,6 +349,10 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
       final updatedDownloadInfo =
           Map<String, FileDownloadInfo>.from(downloadInfo);
 
+      final percent = (event.progress * 100).toStringAsFixed(1);
+      final total = event.fileSize != null ? ' / ${event.fileSize} bytes' : '';
+      _log('Downloading ${event.fileName}: $percent%$total');
+
       emit(FileDownloading(fileName: event.fileName, progress: event.progress));
 
       emit(BluetoothConnected(
@@ -383,6 +396,188 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
         mainData.resetOperationData();
         emit(BluetoothNavigateToWebExport());
       }
+    }
+  }
+
+  Future<void> _onRequestArchiveUpdate(
+    RequestArchiveUpdate event,
+    Emitter<BluetoothState> emit,
+  ) async {
+    if (state is BluetoothConnected) {
+      final s = state as BluetoothConnected;
+      emit(ArchiveUpdatingState(
+        device: s.device,
+        fileList: s.fileList,
+        downloadInfo: s.downloadInfo,
+      ));
+    }
+    await for (final status in repository.requestArchiveUpdate()) {
+      if (status == 'ARCHIVE_UPDATING') {
+        add(const ArchiveUpdating());
+      } else if (status == 'ARCHIVE_READY') {
+        add(const ArchiveReady());
+        break;
+      }
+    }
+  }
+
+  void _onArchiveUpdating(
+    ArchiveUpdating event,
+    Emitter<BluetoothState> emit,
+  ) {
+    if (state is BluetoothConnected) {
+      final s = state as BluetoothConnected;
+      emit(ArchiveUpdatingState(
+        device: s.device,
+        fileList: s.fileList,
+        downloadInfo: s.downloadInfo,
+      ));
+    }
+  }
+
+  void _onArchiveReady(
+    ArchiveReady event,
+    Emitter<BluetoothState> emit,
+  ) {
+    if (state is BluetoothConnected) {
+      final s = state as BluetoothConnected;
+      emit(ArchiveReadyState(
+        device: s.device,
+        fileList: s.fileList,
+        downloadInfo: s.downloadInfo,
+      ));
+
+      const fileName = 'database.db';
+      _log('Auto-start download after archive ready');
+      add(DownloadFile(fileName));
+    }
+  }
+
+  Future<void> _onRunFullWorkflow(
+    RunFullWorkflow event,
+    Emitter<BluetoothState> emit,
+  ) async {
+    _log('=== FULL WORKFLOW STARTED ===');
+    try {
+      emit(BluetoothLoading());
+
+      // 1. Ensure Bluetooth enabled
+      _log('Step 1: checking Bluetooth enabled');
+      var isEnabledResult = await repository.isBluetoothEnabled();
+      bool isEnabled = false;
+      isEnabledResult.fold((failure) {}, (value) => isEnabled = value);
+
+      if (!isEnabled) {
+        _log('Bluetooth is off, enabling...');
+        final enableResult = await repository.enableBluetooth();
+        enableResult.fold(
+          (failure) => emit(BluetoothError(failure.message)),
+          (_) {},
+        );
+      }
+
+      // 2. Scan devices
+      _log('Step 2: scanning devices');
+      final scanResult = await repository.scanForDevices();
+      late BluetoothDeviceEntity targetDevice;
+      bool found = false;
+      scanResult.fold(
+        (failure) => emit(BluetoothError(failure.message)),
+        (devices) {
+          targetDevice = devices.firstWhere(
+              (d) => d.name?.toLowerCase().contains('quantor') == true);
+          found = true;
+          emit(BluetoothScanning([targetDevice]));
+        },
+      );
+
+      if (!found) {
+        emit(const BluetoothError('Устройство Quantor не найдено'));
+        return;
+      }
+
+      // 3. Connect
+      _log('Step 3: connecting to device ${targetDevice.address}');
+      final connectRes = await repository.connectToDevice(targetDevice);
+      bool connected = false;
+      connectRes.fold(
+        (failure) => emit(BluetoothError(failure.message)),
+        (success) {
+          connected = true;
+          emit(BluetoothConnected(
+            device: targetDevice,
+            fileList: [],
+          ));
+          _log('Connected to device');
+        },
+      );
+
+      if (!connected) {
+        return;
+      }
+
+      // 4. Request archive update and wait ready
+      _log('Step 4: requesting archive update');
+      bool stale = await DbUpdateChecker.isStale();
+      if (stale) {
+        _log('Step 4: archive is stale, requesting update');
+        emit(ArchiveUpdatingState(
+            device: targetDevice, fileList: const [], downloadInfo: const {}));
+        await for (final status in repository.requestArchiveUpdate()) {
+          if (status == 'ARCHIVE_READY') {
+            _log('Archive is ready');
+            break;
+          }
+        }
+
+        emit(ArchiveReadyState(
+            device: targetDevice, fileList: const [], downloadInfo: const {}));
+      } else {
+        _log(
+            'Archive is fresh (< ${DbUpdateChecker.maxAge.inHours}h), skip update');
+      }
+
+      // 5. Download file
+      _log('Step 5: starting file download');
+      const fileName = 'database.db';
+      final result = await repository.downloadFile(
+        fileName,
+        targetDevice,
+        onProgress: (progress, fileSize) {
+          add(UpdateDownloadProgress(
+            fileName: fileName,
+            progress: progress,
+            fileSize: fileSize,
+          ));
+        },
+        onComplete: (filePath) async {
+          add(CompleteDownload(
+            fileName: fileName,
+            filePath: filePath,
+          ));
+
+          try {
+            await platform.invokeMethod('openFolder', {'filePath': filePath});
+          } catch (e) {
+            print('Ошибка открытия папки: $e');
+          }
+        },
+      );
+
+      result.fold(
+        (failure) {
+          _log('Download failed: ${failure.message}');
+          emit(BluetoothError(failure.message));
+        },
+        (_) {
+          _log('Download completed');
+          DbUpdateChecker.markNow();
+        },
+      );
+
+      _log('=== FULL WORKFLOW FINISHED ===');
+    } catch (e) {
+      emit(BluetoothError(e.toString()));
     }
   }
 }

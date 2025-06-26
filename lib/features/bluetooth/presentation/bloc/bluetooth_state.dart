@@ -82,3 +82,27 @@ class FileDownloaded extends BluetoothState {
 class BluetoothNavigateToWebExport extends BluetoothState {
   const BluetoothNavigateToWebExport();
 }
+
+class ArchiveUpdatingState extends BluetoothConnected {
+  const ArchiveUpdatingState({
+    required BluetoothDeviceEntity device,
+    required List<String> fileList,
+    required Map<String, FileDownloadInfo> downloadInfo,
+  }) : super(
+          device: device,
+          fileList: fileList,
+          downloadInfo: downloadInfo,
+        );
+}
+
+class ArchiveReadyState extends BluetoothConnected {
+  const ArchiveReadyState({
+    required BluetoothDeviceEntity device,
+    required List<String> fileList,
+    required Map<String, FileDownloadInfo> downloadInfo,
+  }) : super(
+          device: device,
+          fileList: fileList,
+          downloadInfo: downloadInfo,
+        );
+}

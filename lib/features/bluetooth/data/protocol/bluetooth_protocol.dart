@@ -5,16 +5,31 @@ import 'dart:typed_data';
 /// Сейчас поддерживаются две команды:
 ///   • LIST_FILES
 ///   • GET_FILE:<filename>
-/// Каждая команда кодируется так же, как у Java-сервера:
+/// Каждая команда кодируется так же, как у ява-сервера:
 ///   2-байтовая длина (big-endian) + UTF-8-строка.
 class BluetoothProtocol {
-  BluetoothProtocol._(); // статический util-класс
+  BluetoothProtocol._();
 
   /// Команда «дай список файлов».
   static Uint8List listFilesCmd() => _encode('LIST_FILES');
 
   /// Команда «отдай файл [name]».
   static Uint8List getFileCmd(String name) => _encode('GET_FILE:$name');
+
+  /// Команда «запросить обновление архива».
+  static Uint8List updateArchiveCmd() => _encode('UPDATE_ARCHIVE');
+
+  /// Проверка, что это ответ ARCHIVE_UPDATING
+  static bool isArchiveUpdating(Uint8List data) {
+    final msg = _decode(data);
+    return msg == 'ARCHIVE_UPDATING';
+  }
+
+  /// Проверка, что это ответ ARCHIVE_READY
+  static bool isArchiveReady(Uint8List data) {
+    final msg = _decode(data);
+    return msg == 'ARCHIVE_READY';
+  }
 
   // ============ helpers ============
   static Uint8List _encode(String msg) {
@@ -25,5 +40,12 @@ class BluetoothProtocol {
     result[1] = len & 0xFF;
     result.setAll(2, utf);
     return result;
+  }
+
+  static String _decode(Uint8List data) {
+    if (data.length < 2) return '';
+    final len = (data[0] << 8) | data[1];
+    if (data.length < 2 + len) return '';
+    return utf8.decode(data.sublist(2, 2 + len));
   }
 }

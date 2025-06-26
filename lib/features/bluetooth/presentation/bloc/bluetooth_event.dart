@@ -92,3 +92,19 @@ class CompleteDownload extends BluetoothEvent {
   @override
   List<Object?> get props => [fileName, filePath];
 }
+
+class RequestArchiveUpdate extends BluetoothEvent {
+  const RequestArchiveUpdate();
+}
+
+class ArchiveUpdating extends BluetoothEvent {
+  const ArchiveUpdating();
+}
+
+class ArchiveReady extends BluetoothEvent {
+  const ArchiveReady();
+}
+
+class RunFullWorkflow extends BluetoothEvent {
+  const RunFullWorkflow();
+}

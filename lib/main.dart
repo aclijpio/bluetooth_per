@@ -1,3 +1,4 @@
+import 'package:bluetooth_per/features/bluetooth/presentation/bloc/unified_interface_cubit.dart';
 import 'package:bluetooth_per/features/unified/presentation/pages/unified_page.dart';
 import 'package:bluetooth_per/features/web/utils/cubit_provider_widget.dart';
 import 'package:bluetooth_per/features/web/utils/repository_provider_widget.dart';
@@ -36,9 +37,16 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return RepositoryProviderWidget(
       child: CubitProviderWidget(
-        child: BlocProvider(
-          create: (context) => di.sl<BluetoothBloc>(),
-          child: const UnifiedPage(),
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider(
+              create: (context) => di.sl<BluetoothBloc>(),
+            ),
+            BlocProvider(
+              create: (context) => UnifiedInterfaceCubit(),
+            ),
+          ],
+          child: const DerviceFlowScreen(),
         ),
       ),
     );

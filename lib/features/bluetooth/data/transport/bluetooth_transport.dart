@@ -19,10 +19,13 @@ class BluetoothTransport {
 
   BluetoothConnection? _connection;
   StreamSubscription? _inputSub;
-  final _bytesController = StreamController<List<int>>.broadcast();
+  StreamController<List<int>>? _bytesController;
 
   /// Широковещательный поток входящих байтов.
-  Stream<List<int>> get bytes => _bytesController.stream;
+  Stream<List<int>> get bytes {
+    _bytesController ??= StreamController<List<int>>.broadcast();
+    return _bytesController!.stream;
+  }
 
   bool get isConnected => _connection?.isConnected ?? false;
 
@@ -34,6 +37,11 @@ class BluetoothTransport {
     // Отменяем предыдущую подписку, если была.
     await _inputSub?.cancel();
     _inputSub = null;
+
+    // Create new stream controller for this connection
+    _bytesController?.close();
+    _bytesController = StreamController<List<int>>.broadcast();
+
     _connection = await _bluetooth.connect(mac);
 
     if (!(_connection?.isConnected ?? false)) {
@@ -42,9 +50,12 @@ class BluetoothTransport {
 
     // Каждую полученную порцию данных прокидываем наружу.
     _inputSub = _connection!.input?.listen(
-      (data) => _bytesController.add(data),
-      onError: _bytesController.addError,
-      onDone: () => _bytesController.close(),
+      (data) => _bytesController?.add(data),
+      onError: (error) => _bytesController?.addError(error),
+      onDone: () {
+        // Don't close the controller here, just mark the connection as done
+        print('Bluetooth connection input stream closed');
+      },
       cancelOnError: true,
     );
   }
@@ -66,6 +77,7 @@ class BluetoothTransport {
   /// Полностью уничтожает транспорт (удобно в тестах).
   Future<void> dispose() async {
     await disconnect();
-    await _bytesController.close();
+    await _bytesController?.close();
+    _bytesController = null;
   }
 }
