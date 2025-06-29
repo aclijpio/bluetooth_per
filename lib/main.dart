@@ -1,12 +1,9 @@
-import 'package:bluetooth_per/features/bluetooth/presentation/bloc/unified_interface_cubit.dart';
-import 'package:bluetooth_per/features/unified/presentation/pages/unified_page.dart';
-import 'package:bluetooth_per/features/web/utils/cubit_provider_widget.dart';
-import 'package:bluetooth_per/features/web/utils/repository_provider_widget.dart';
+import 'package:bluetooth_per/bluetooth/bluetooth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_blue_classic/flutter_blue_classic.dart' as classic;
 
 import 'core/di/injection_container.dart' as di;
-import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,19 +32,23 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RepositoryProviderWidget(
-      child: CubitProviderWidget(
-        child: MultiBlocProvider(
-          providers: [
-            BlocProvider(
-              create: (context) => di.sl<BluetoothBloc>(),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Quantor Bluetooth Manager'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: MultiBlocProvider(
+        providers: [
+          BlocProvider(
+            create: (context) => BluetoothFlowCubit(
+              bluetoothManager: BluetoothManager(
+                flutterBlueClassic: classic.FlutterBlueClassic(),
+                mainData: di.sl<MainData>(),
+              ),
             ),
-            BlocProvider(
-              create: (context) => UnifiedInterfaceCubit(),
-            ),
-          ],
-          child: const DerviceFlowScreen(),
-        ),
+          ),
+        ],
+        child: const BluetoothFlowScreen(),
       ),
     );
   }
