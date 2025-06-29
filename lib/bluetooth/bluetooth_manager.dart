@@ -9,11 +9,13 @@ import 'config/device_config.dart';
 import 'entities/archive_info.dart';
 import 'entities/bluetooth_device.dart';
 import 'entities/point.dart';
+import 'entities/operation.dart';
 import 'repositories/bluetooth_server_repository.dart';
 import 'services/web_integration_service.dart';
 import 'transport/bluetooth_transport.dart';
 
 /// Основной класс для управления Bluetooth взаимодействием
+/// Содержит отдельные методы для каждого этапа работы
 class BluetoothManager {
   final BluetoothTransport _transport;
   final BluetoothServerRepository _bluetoothRepository;
@@ -27,75 +29,92 @@ class BluetoothManager {
             flutterBlueClassic, BluetoothTransport(flutterBlueClassic)),
         _webService = WebIntegrationService(mainData);
 
-  /// Полный flow работы с Bluetooth сервером
-  Future<Either<Failure, List<Point>>> executeFullFlow() async {
+  /// Поиск Bluetooth устройств
+  Future<Either<Failure, List<BluetoothDevice>>> scanForDevices() async {
+    try {
+      print('🔍 [BluetoothManager] Начинаем поиск устройств...');
+      final result = await _bluetoothRepository.scanForDevices();
+
+      result.fold(
+        (failure) {
+          print(
+              '❌ [BluetoothManager] Ошибка поиска устройств: ${failure.message}');
+        },
+        (devices) {
+          print('📊 [BluetoothManager] Найдено устройств: ${devices.length}');
+          if (devices.isNotEmpty) {
+            for (final device in devices) {
+              print('✅ [BluetoothManager] ${device.name} (${device.address})');
+            }
+          } else {
+            print('⚠️ [BluetoothManager] Устройства не найдены');
+          }
+        },
+      );
+
+      return result;
+    } catch (e) {
+      print('❌ [BluetoothManager] Исключение при поиске устройств: $e');
+      return Left(BluetoothFailure(message: 'Ошибка поиска устройств: $e'));
+    }
+  }
+
+  /// Подключение к устройству и обновление архива
+  Future<Either<Failure, ArchiveInfo>> connectAndUpdateArchive(
+      BluetoothDevice device) async {
     try {
       print(
-          '🚀 [BluetoothManager] Начинаем полный flow работы с Bluetooth сервером');
+          '🔗 [BluetoothManager] Подключение к устройству: ${device.name} (${device.address})');
+      final result = await _bluetoothRepository.connectAndUpdateArchive(device);
 
-      // 1. Поиск устройств
-      print('🔍 [BluetoothManager] Шаг 1: Поиск Bluetooth устройств');
-      final scanResult = await _bluetoothRepository.scanForDevices();
-      if (scanResult.isLeft()) {
-        final failure =
-            scanResult.fold((l) => l, (r) => throw Exception('Unexpected'));
-        print(
-            '❌ [BluetoothManager] Ошибка поиска устройств: ${failure.message}');
-        return Left(failure);
-      }
+      result.fold(
+        (failure) {
+          print('❌ [BluetoothManager] Ошибка подключения: ${failure.message}');
+        },
+        (archiveInfo) {
+          print('✅ [BluetoothManager] Архив готов: ${archiveInfo.fileName}');
+        },
+      );
 
-      final devices =
-          scanResult.fold((l) => throw Exception('Unexpected'), (r) => r);
-      print('📊 [BluetoothManager] Найдено устройств: ${devices.length}');
+      return result;
+    } catch (e) {
+      print('❌ [BluetoothManager] Исключение при подключении: $e');
+      return Left(ConnectionFailure(message: 'Ошибка подключения: $e'));
+    }
+  }
 
-      if (devices.isEmpty) {
-        final error =
-            'No devices found matching patterns: ${DeviceConfig.getPatterns()}';
-        print('❌ [BluetoothManager] $error');
-        return Left(BluetoothFailure(message: error));
-      }
+  /// Скачивание архива
+  Future<Either<Failure, String>> downloadArchive(
+      ArchiveInfo archiveInfo) async {
+    try {
+      print('📥 [BluetoothManager] Скачивание архива: ${archiveInfo.fileName}');
+      final result = await _bluetoothRepository.downloadArchive(archiveInfo);
 
-      // Берем первое найденное устройство
-      final device = devices.first;
-      print(
-          '✅ [BluetoothManager] Выбрано устройство: ${device.name} (${device.address})');
+      result.fold(
+        (failure) {
+          print('❌ [BluetoothManager] Ошибка скачивания: ${failure.message}');
+        },
+        (extractedPath) {
+          print('✅ [BluetoothManager] Архив извлечен в: $extractedPath');
+        },
+      );
 
-      // 2. Подключение и обновление архива
-      print(
-          '🔗 [BluetoothManager] Шаг 2: Подключение к устройству и обновление архива');
-      final connectResult =
-          await _bluetoothRepository.connectAndUpdateArchive(device);
-      if (connectResult.isLeft()) {
-        final failure =
-            connectResult.fold((l) => l, (r) => throw Exception('Unexpected'));
-        print('❌ [BluetoothManager] Ошибка подключения: ${failure.message}');
-        return Left(failure);
-      }
+      return result;
+    } catch (e) {
+      print('❌ [BluetoothManager] Исключение при скачивании: $e');
+      return Left(
+          FileOperationFailure(message: 'Ошибка скачивания архива: $e'));
+    }
+  }
 
-      final archiveInfo =
-          connectResult.fold((l) => throw Exception('Unexpected'), (r) => r);
-      print('✅ [BluetoothManager] Архив готов: ${archiveInfo.fileName}');
+  /// Загрузка операций из архива
+  Future<Either<Failure, List<Operation>>> loadOperationsFromArchive(
+      String archivePath) async {
+    try {
+      print('📂 [BluetoothManager] Загрузка операций из архива: $archivePath');
 
-      // 3. Скачивание архива
-      print('📥 [BluetoothManager] Шаг 3: Скачивание архива');
-      final downloadResult =
-          await _bluetoothRepository.downloadArchive(archiveInfo);
-      if (downloadResult.isLeft()) {
-        final failure =
-            downloadResult.fold((l) => l, (r) => throw Exception('Unexpected'));
-        print(
-            '❌ [BluetoothManager] Ошибка скачивания архива: ${failure.message}');
-        return Left(failure);
-      }
-
-      final extractedPath =
-          downloadResult.fold((l) => throw Exception('Unexpected'), (r) => r);
-      print('✅ [BluetoothManager] Архив извлечен в: $extractedPath');
-
-      // 4. Загрузка операций из архива
-      print('📂 [BluetoothManager] Шаг 4: Загрузка операций из архива');
       final loadResult =
-          await _webService.loadOperationsFromArchive(extractedPath);
+          await _webService.loadOperationsFromArchive(archivePath);
       if (loadResult != OperStatus.ok) {
         final error = 'Failed to load operations: $loadResult';
         print('❌ [BluetoothManager] $error');
@@ -111,8 +130,20 @@ class BluetoothManager {
         return Left(FileOperationFailure(message: error));
       }
 
-      // 5. Обработка каждой операции
-      print('🔄 [BluetoothManager] Шаг 5: Обработка операций');
+      return Right(operations);
+    } catch (e) {
+      print('❌ [BluetoothManager] Исключение при загрузке операций: $e');
+      return Left(
+          FileOperationFailure(message: 'Ошибка загрузки операций: $e'));
+    }
+  }
+
+  /// Обработка операций и получение отличающихся точек
+  Future<Either<Failure, List<Point>>> processOperations(
+      List<Operation> operations) async {
+    try {
+      print(
+          '🔄 [BluetoothManager] Обработка операций (${operations.length} операций)');
       final allDifferentPoints = <Point>[];
 
       for (int i = 0; i < operations.length; i++) {
@@ -136,66 +167,77 @@ class BluetoothManager {
             '✅ [BluetoothManager] Операция ${operation.dt}: найдено ${differentPoints.length} отличающихся точек');
       }
 
-      // 6. Отключение от устройства
-      print('🔌 [BluetoothManager] Шаг 6: Отключение от устройства');
-      await _bluetoothRepository.disconnect();
-      print('✅ [BluetoothManager] Отключение выполнено');
-
-      // 7. Отправка отличающихся точек на сервер
-      if (allDifferentPoints.isNotEmpty) {
-        print(
-            '📤 [BluetoothManager] Шаг 7: Отправка точек на сервер (${allDifferentPoints.length} точек)');
-        final sendResult =
-            await _webService.sendDifferentPoints(allDifferentPoints);
-        if (sendResult != 200) {
-          print(
-              '⚠️ [BluetoothManager] Предупреждение: Не удалось отправить точки на сервер: $sendResult');
-        } else {
-          print(
-              '✅ [BluetoothManager] Успешно отправлено ${allDifferentPoints.length} точек на сервер');
-        }
-      } else {
-        print('ℹ️ [BluetoothManager] Нет отличающихся точек для отправки');
-      }
-
-      print('🎉 [BluetoothManager] Полный flow завершен успешно!');
+      print(
+          '📊 [BluetoothManager] Всего найдено отличающихся точек: ${allDifferentPoints.length}');
       return Right(allDifferentPoints);
     } catch (e) {
-      print('❌ [BluetoothManager] Исключение в полном flow: $e');
-      return Left(BluetoothFailure(message: e.toString()));
-    } finally {
-      print('🧹 [BluetoothManager] Очистка ресурсов');
-      // Очищаем ресурсы
-      await _bluetoothRepository.disconnect();
-      _webService.resetOperationData();
-      print('✅ [BluetoothManager] Ресурсы очищены');
+      print('❌ [BluetoothManager] Исключение при обработке операций: $e');
+      return Left(
+          FileOperationFailure(message: 'Ошибка обработки операций: $e'));
     }
   }
 
-  /// Поиск устройств
-  Future<Either<Failure, List<BluetoothDevice>>> scanForDevices() async {
-    return await _bluetoothRepository.scanForDevices();
-  }
+  /// Отправка точек на сервер
+  Future<Either<Failure, int>> sendPointsToServer(List<Point> points) async {
+    try {
+      if (points.isEmpty) {
+        print('ℹ️ [BluetoothManager] Нет точек для отправки');
+        return const Right(200);
+      }
 
-  /// Подключение к устройству и обновление архива
-  Future<Either<Failure, ArchiveInfo>> connectAndUpdateArchive(
-      BluetoothDevice device) async {
-    return await _bluetoothRepository.connectAndUpdateArchive(device);
-  }
+      print(
+          '📤 [BluetoothManager] Отправка точек на сервер (${points.length} точек)');
+      final sendResult = await _webService.sendDifferentPoints(points);
 
-  /// Скачивание архива
-  Future<Either<Failure, String>> downloadArchive(
-      ArchiveInfo archiveInfo) async {
-    return await _bluetoothRepository.downloadArchive(archiveInfo);
+      if (sendResult != 200) {
+        print(
+            '⚠️ [BluetoothManager] Предупреждение: Не удалось отправить точки на сервер: $sendResult');
+        return Left(ConnectionFailure(
+            message: 'Ошибка отправки на сервер: $sendResult'));
+      } else {
+        print(
+            '✅ [BluetoothManager] Успешно отправлено ${points.length} точек на сервер');
+        return Right(sendResult);
+      }
+    } catch (e) {
+      print('❌ [BluetoothManager] Исключение при отправке точек: $e');
+      return Left(ConnectionFailure(message: 'Ошибка отправки точек: $e'));
+    }
   }
 
   /// Отключение от устройства
   Future<Either<Failure, bool>> disconnect() async {
-    return await _bluetoothRepository.disconnect();
+    try {
+      print('🔌 [BluetoothManager] Отключение от устройства');
+      final result = await _bluetoothRepository.disconnect();
+
+      result.fold(
+        (failure) {
+          print('❌ [BluetoothManager] Ошибка отключения: ${failure.message}');
+        },
+        (success) {
+          print('✅ [BluetoothManager] Отключение выполнено успешно');
+        },
+      );
+
+      return result;
+    } catch (e) {
+      print('❌ [BluetoothManager] Исключение при отключении: $e');
+      return Left(ConnectionFailure(message: 'Ошибка отключения: $e'));
+    }
+  }
+
+  /// Сброс данных операций
+  void resetOperationData() {
+    print('🧹 [BluetoothManager] Сброс данных операций');
+    _webService.resetOperationData();
   }
 
   /// Освобождение ресурсов
   Future<void> dispose() async {
+    print('🧹 [BluetoothManager] Освобождение ресурсов');
     await _transport.dispose();
+    resetOperationData();
+    print('✅ [BluetoothManager] Ресурсы освобождены');
   }
 }

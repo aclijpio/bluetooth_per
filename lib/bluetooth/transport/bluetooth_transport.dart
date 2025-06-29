@@ -57,7 +57,8 @@ class BluetoothTransport {
         },
         onDone: () {
           print('🔌 [BluetoothTransport] Соединение закрыто');
-          _bytesController.close();
+          // НЕ закрываем _bytesController здесь, чтобы избежать ошибок в репозитории
+          // _bytesController.close();
         },
         cancelOnError: true,
       );

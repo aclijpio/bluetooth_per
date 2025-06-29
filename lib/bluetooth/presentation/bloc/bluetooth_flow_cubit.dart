@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../bluetooth_manager.dart';
 import '../../entities/bluetooth_device.dart' as bt_entity;
+import '../../entities/operation.dart';
+import '../../entities/point.dart';
 import '../models/device.dart';
 import '../models/archive_entry.dart';
 import '../models/table_row_data.dart';
@@ -107,8 +109,11 @@ class BluetoothFlowCubit extends Cubit<BluetoothFlowState> {
             archive: _currentArchive!,
           ));
 
-          // Автоматически начинаем скачивание
-          downloadArchive(_currentArchive!);
+          // Даем серверу время закрыть соединение после ARCHIVE_READY
+          Future.delayed(const Duration(seconds: 1)).then((_) {
+            // Автоматически начинаем скачивание
+            downloadArchive(_currentArchive!);
+          });
         },
       );
     });
@@ -121,11 +126,11 @@ class BluetoothFlowCubit extends Cubit<BluetoothFlowState> {
     _currentArchive = archive;
     emit(DownloadingState(
       connectedDevice: _currentDevice!,
-      archive: archive,
+      archive: _currentArchive!,
       progress: 0.0,
       speedLabel: '0 B/s',
       bytesReceived: 0,
-      totalBytes: archive.sizeBytes,
+      totalBytes: _currentArchive!.sizeBytes,
       startTime: DateTime.now(),
     ));
 
@@ -137,44 +142,206 @@ class BluetoothFlowCubit extends Cubit<BluetoothFlowState> {
   }
 
   /// Выполнить полный процесс
-  void executeFullProcess() {
+  void executeFullProcess() async {
     if (_isProcessRunning) return;
 
     _isProcessRunning = true;
     emit(const SearchingState(statusMessage: 'Начинаем полный процесс...'));
 
-    _processSubscription = bluetoothManager.executeFullFlow().asStream().listen(
-      (result) {
-        result.fold(
-          (failure) {
-            _isProcessRunning = false;
-            emit(ErrorState(
-              errorMessage: _getErrorMessage(failure),
-              canRetry: true,
-              lastConnectedDevice: _currentDevice,
-            ));
-          },
-          (points) {
-            _isProcessRunning = false;
-            emit(ProcessCompletedState(
-              connectedDevice: _currentDevice!,
-              archive: _currentArchive!,
-              totalPoints: points.length,
-              differentPoints: points.length,
-              extractedPath: 'Download/quan',
-            ));
-          },
-        );
-      },
-      onError: (error) {
+    try {
+      // Шаг 1: Поиск устройств
+      emit(const SearchingState(statusMessage: 'Поиск Bluetooth устройств...'));
+      final scanResult = await bluetoothManager.scanForDevices();
+
+      final devices = await scanResult.fold(
+        (failure) {
+          _isProcessRunning = false;
+          emit(ErrorState(
+            errorMessage: _getErrorMessage(failure),
+            canRetry: true,
+            lastConnectedDevice: _currentDevice,
+          ));
+          return <bt_entity.BluetoothDevice>[];
+        },
+        (devices) => devices,
+      );
+
+      if (devices.isEmpty) {
         _isProcessRunning = false;
         emit(ErrorState(
-          errorMessage: 'Неожиданная ошибка: $error',
+          errorMessage: 'Устройства не найдены',
           canRetry: true,
           lastConnectedDevice: _currentDevice,
         ));
-      },
-    );
+        return;
+      }
+
+      // Берем первое устройство
+      final device = devices.first;
+      _currentDevice = Device(
+        name: device.name ?? 'Unknown',
+        macAddress: device.address,
+      );
+
+      // Шаг 2: Подключение и обновление архива
+      emit(ConnectingState(device: _currentDevice!));
+      final archiveResult =
+          await bluetoothManager.connectAndUpdateArchive(device);
+
+      final archiveInfo = await archiveResult.fold(
+        (failure) {
+          _isProcessRunning = false;
+          emit(ErrorState(
+            errorMessage: _getErrorMessage(failure),
+            canRetry: true,
+            lastConnectedDevice: _currentDevice,
+          ));
+          return null;
+        },
+        (archiveInfo) => archiveInfo,
+      );
+
+      if (archiveInfo == null) return;
+
+      _currentArchive = ArchiveEntry(
+        fileName: archiveInfo.fileName,
+        path: archiveInfo.path,
+        createdAt: DateTime.now(),
+        sizeBytes: archiveInfo.fileSize ?? 0,
+      );
+
+      // Даем серверу время закрыть соединение после ARCHIVE_READY
+      await Future.delayed(const Duration(seconds: 1));
+
+      // Шаг 3: Скачивание архива
+      emit(DownloadingState(
+        connectedDevice: _currentDevice!,
+        archive: _currentArchive!,
+        progress: 0.0,
+        speedLabel: '0 B/s',
+        bytesReceived: 0,
+        totalBytes: _currentArchive!.sizeBytes,
+        startTime: DateTime.now(),
+      ));
+
+      final downloadResult =
+          await bluetoothManager.downloadArchive(archiveInfo);
+
+      final extractedPath = await downloadResult.fold(
+        (failure) {
+          _isProcessRunning = false;
+          emit(ErrorState(
+            errorMessage: _getErrorMessage(failure),
+            canRetry: true,
+            lastConnectedDevice: _currentDevice,
+          ));
+          return null;
+        },
+        (extractedPath) => extractedPath,
+      );
+
+      if (extractedPath == null) return;
+
+      // Шаг 4: Загрузка операций
+      emit(LoadingOperationsState(
+        connectedDevice: _currentDevice!,
+        archive: _currentArchive!,
+        extractedPath: extractedPath,
+        loadedOperations: 0,
+        totalOperations: 1,
+      ));
+
+      final operationsResult =
+          await bluetoothManager.loadOperationsFromArchive(extractedPath);
+
+      final operations = await operationsResult.fold(
+        (failure) {
+          _isProcessRunning = false;
+          emit(ErrorState(
+            errorMessage: _getErrorMessage(failure),
+            canRetry: true,
+            lastConnectedDevice: _currentDevice,
+          ));
+          return <Operation>[];
+        },
+        (operations) => operations,
+      );
+
+      if (operations.isEmpty) {
+        _isProcessRunning = false;
+        emit(ErrorState(
+          errorMessage: 'Операции не найдены в архиве',
+          canRetry: true,
+          lastConnectedDevice: _currentDevice,
+        ));
+        return;
+      }
+
+      // Шаг 5: Обработка операций
+      emit(ProcessingOperationsState(
+        connectedDevice: _currentDevice!,
+        archive: _currentArchive!,
+        processedOperations: 0,
+        totalOperations: operations.length,
+        foundDifferentPoints: 0,
+      ));
+
+      final pointsResult = await bluetoothManager.processOperations(operations);
+
+      final points = await pointsResult.fold(
+        (failure) {
+          _isProcessRunning = false;
+          emit(ErrorState(
+            errorMessage: _getErrorMessage(failure),
+            canRetry: true,
+            lastConnectedDevice: _currentDevice,
+          ));
+          return <Point>[];
+        },
+        (points) => points,
+      );
+
+      // Шаг 6: Отправка на сервер
+      if (points.isNotEmpty) {
+        emit(UploadingPointsState(
+          connectedDevice: _currentDevice!,
+          uploadedPoints: 0,
+          totalPoints: points.length,
+          statusMessage: 'Отправка точек на сервер...',
+        ));
+
+        final sendResult = await bluetoothManager.sendPointsToServer(points);
+
+        await sendResult.fold(
+          (failure) {
+            print('⚠️ Предупреждение: ${failure.message}');
+          },
+          (statusCode) {
+            print('✅ Отправка завершена со статусом: $statusCode');
+          },
+        );
+      }
+
+      // Шаг 7: Отключение
+      await bluetoothManager.disconnect();
+
+      // Завершение
+      _isProcessRunning = false;
+      emit(ProcessCompletedState(
+        connectedDevice: _currentDevice!,
+        archive: _currentArchive!,
+        totalPoints: points.length,
+        differentPoints: points.length,
+        extractedPath: extractedPath,
+      ));
+    } catch (e) {
+      _isProcessRunning = false;
+      emit(ErrorState(
+        errorMessage: 'Неожиданная ошибка: $e',
+        canRetry: true,
+        lastConnectedDevice: _currentDevice,
+      ));
+    }
   }
 
   /// Повторить процесс

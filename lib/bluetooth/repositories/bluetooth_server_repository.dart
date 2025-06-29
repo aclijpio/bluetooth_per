@@ -18,6 +18,11 @@ class BluetoothServerRepository {
   final classic.FlutterBlueClassic _flutterBlueClassic;
   final BluetoothTransport _transport;
 
+  /// Адрес устройства, к которому устанавливалось последнее успешное подключение.
+  /// Используется для автоматического переподключения, если соединение прервалось
+  /// до отправки очередной команды.
+  String? _lastConnectedAddress;
+
   BluetoothServerRepository(this._flutterBlueClassic, this._transport);
 
   /// Поиск устройств по шаблону
@@ -39,12 +44,9 @@ class BluetoothServerRepository {
         (classicDevice) {
           print(
               '🔍 [BluetoothServerRepository] Найдено устройство: ${classicDevice.name} (${classicDevice.address})');
-          print(
-              '🔍 [BluetoothServerRepository] Тип устройства: ${classicDevice.type}');
-          print('🔍 [BluetoothServerRepository] RSSI: ${classicDevice.rssi}');
 
-          // Проверяем соответствие паттерну
-          if (DeviceConfig.matchesPattern(classicDevice.name)) {
+          if (classicDevice.name != "null" &&
+              DeviceConfig.matchesPattern(classicDevice.name)) {
             print(
                 '✅ [BluetoothServerRepository] Устройство соответствует паттерну: ${classicDevice.name}');
 
@@ -84,7 +86,7 @@ class BluetoothServerRepository {
       print('🔍 [BluetoothServerRepository] Сканирование запущено');
 
       // Сканируем 15 секунд (увеличиваем время)
-      Timer(const Duration(seconds: 15), () {
+      Timer(const Duration(seconds: 60), () {
         print('⏰ [BluetoothServerRepository] Таймаут сканирования (15 секунд)');
         _flutterBlueClassic.stopScan();
         subscription.cancel();
@@ -125,6 +127,7 @@ class BluetoothServerRepository {
 
       // Подключаемся к устройству
       await _transport.connect(device.address);
+      _lastConnectedAddress = device.address;
       print(
           '✅ [BluetoothServerRepository] Подключение к устройству установлено');
 
@@ -156,11 +159,34 @@ class BluetoothServerRepository {
       print(
           '📥 [BluetoothServerRepository] Начинаем скачивание архива: ${archiveInfo.fileName}');
 
+      // Если соединение было разорвано сервером после ARCHIVE_READY,
+      // выполняем автоматическое переподключение перед отправкой GET_ARCHIVE.
+      if (!_transport.isConnected) {
+        if (_lastConnectedAddress == null) {
+          throw StateError(
+              'Неизвестно, к какому устройству подключаться для повторного соединения');
+        }
+
+        print(
+            '🔄 [BluetoothServerRepository] Соединение потеряно – пытаемся переподключиться к ${_lastConnectedAddress!}');
+        await _transport.connect(_lastConnectedAddress!);
+        print('✅ [BluetoothServerRepository] Переподключились успешно');
+      }
+
       // Отправляем команду получения архива
       final getCommand = BluetoothProtocol.getArchiveCmd(archiveInfo.path);
       print(
           '📤 [BluetoothServerRepository] Отправляем команду GET_ARCHIVE для файла: ${archiveInfo.path}');
-      _transport.sendCommand(getCommand);
+      try {
+        _transport.sendCommand(getCommand);
+      } catch (e) {
+        print('⚠️ [BluetoothServerRepository] Ошибка отправки GET_ARCHIVE: $e');
+        print(
+            '🔄 [BluetoothServerRepository] Пытаемся переподключиться и повторить');
+        await _transport.disconnect();
+        await _transport.connect(_lastConnectedAddress!);
+        _transport.sendCommand(getCommand);
+      }
       print('✅ [BluetoothServerRepository] Команда GET_ARCHIVE отправлена');
 
       // Скачиваем архив
@@ -188,6 +214,7 @@ class BluetoothServerRepository {
     try {
       print('🔌 [BluetoothServerRepository] Отключаемся от устройства...');
       await _transport.disconnect();
+      _lastConnectedAddress = null;
       print('✅ [BluetoothServerRepository] Отключение выполнено успешно');
       return const Right(true);
     } catch (e) {
@@ -270,42 +297,68 @@ class BluetoothServerRepository {
 
     print('📥 [BluetoothServerRepository] Начинаем получение данных архива...');
 
-    final subscription = _transport.bytes.listen(
+    late StreamSubscription subscription;
+    Timer? timeoutTimer;
+
+    void completeIfNot() {
+      if (!completer.isCompleted) {
+        completer.complete(Uint8List.fromList(buffer));
+      }
+    }
+
+    const idle = Duration(seconds: 2);
+    Timer? idleTimer;
+
+    void resetIdle() {
+      idleTimer?.cancel();
+      idleTimer = Timer(idle, () {
+        print('🕑 [BluetoothServerRepository] idle timeout – завершаем приём');
+        completeIfNot();
+      });
+    }
+
+    subscription = _transport.bytes.listen(
       (data) {
         print(
             '📨 [BluetoothServerRepository] Получен блок данных: ${data.length} байт');
         buffer.addAll(data);
         print(
             '📊 [BluetoothServerRepository] Общий размер полученных данных: ${buffer.length} байт');
+        resetIdle();
       },
       onError: (error) {
         print(
             '❌ [BluetoothServerRepository] Ошибка при получении данных архива: $error');
-        completer.completeError(error);
+        if (!completer.isCompleted) {
+          completer.completeError(error);
+        }
       },
       onDone: () {
         print(
             '✅ [BluetoothServerRepository] Получение данных архива завершено');
+        completeIfNot();
       },
     );
 
     // Таймаут 60 секунд для скачивания
-    Timer(const Duration(seconds: 60), () {
+    timeoutTimer = Timer(const Duration(seconds: 60), () {
       if (!completer.isCompleted) {
         print(
             '⏰ [BluetoothServerRepository] Таймаут скачивания архива (60 секунд)');
         print(
             '📊 [BluetoothServerRepository] Итоговый размер полученных данных: ${buffer.length} байт');
-        completer.complete(Uint8List.fromList(buffer));
+        completeIfNot();
       }
     });
 
     try {
       final result = await completer.future;
-      subscription.cancel();
+      await subscription.cancel();
+      timeoutTimer?.cancel();
       return result;
     } catch (e) {
-      subscription.cancel();
+      await subscription.cancel();
+      timeoutTimer?.cancel();
       rethrow;
     }
   }

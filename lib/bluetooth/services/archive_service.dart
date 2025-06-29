@@ -18,19 +18,36 @@ class ArchiveService {
         await quanDir.create(recursive: true);
       }
 
-      // Распаковываем архив
-      final archive = ZipDecoder().decodeBytes(archiveData);
+      final extension = fileName.split('.').last.toLowerCase();
 
-      for (final file in archive) {
-        final filename = file.name;
-        if (file.isFile) {
-          final outFile = File('${quanDir.path}/$filename');
-          await outFile.create(recursive: true);
-          await outFile.writeAsBytes(file.content as List<int>);
+      if (extension == 'zip') {
+        // ZIP-архив
+        final archive = ZipDecoder().decodeBytes(archiveData);
+
+        for (final file in archive) {
+          final filename = file.name;
+          if (file.isFile) {
+            final outFile = File('${quanDir.path}/$filename');
+            await outFile.create(recursive: true);
+            await outFile.writeAsBytes(file.content as List<int>);
+          }
         }
-      }
 
-      return quanDir.path;
+        return quanDir.path;
+      } else if (extension == 'gz') {
+        // GZIP – обычно один файл внутри
+        final decoded = GZipDecoder().decodeBytes(archiveData);
+
+        // Имя файла без .gz
+        final outName = fileName.replaceAll(RegExp(r'\.gz\$'), '');
+        final outFile = File('${quanDir.path}/$outName');
+        await outFile.create(recursive: true);
+        await outFile.writeAsBytes(decoded);
+
+        return outFile.parent.path;
+      } else {
+        throw Exception('Unsupported archive type: $extension');
+      }
     } catch (e) {
       throw Exception('Failed to extract archive: $e');
     }

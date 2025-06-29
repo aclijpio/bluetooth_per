@@ -130,7 +130,7 @@ class _BluetoothFlowScreenState extends State<BluetoothFlowScreen> {
         ),
         const SizedBox(height: 24),
         const Text(
-          'Нажмите кнопку для поиска устройств',
+          'Нажмите кнопку для запуска полного процесса',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 18,
@@ -538,8 +538,8 @@ class _BluetoothFlowScreenState extends State<BluetoothFlowScreen> {
       BluetoothFlowState state, BluetoothFlowCubit cubit) {
     if (state is InitialSearchState) {
       return PrimaryButton(
-        label: 'Поиск устройств',
-        onPressed: cubit.startScanning,
+        label: 'Запустить полный процесс',
+        onPressed: cubit.executeFullProcess,
         enabled: state.canRetry,
       );
     } else if (state is SearchingState) {
