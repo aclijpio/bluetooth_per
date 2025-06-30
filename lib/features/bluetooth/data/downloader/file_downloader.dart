@@ -38,7 +38,6 @@ class FileDownloader {
     }
   }
 
-  /// Принудительное завершение без ожидания размера.
   Future<void> finish({CompleteCallback? onComplete}) async {
     await _finish(onComplete);
   }

@@ -13,8 +13,8 @@ class BluetoothProtocol {
   /// Команда «дай список файлов».
   static Uint8List listFilesCmd() => _encode('LIST_FILES');
 
-  /// Команда «отдай файл [name]».
-  static Uint8List getFileCmd(String name) => _encode('GET_FILE:$name');
+  /// Команда «запросить получение архива по [path]».
+  static Uint8List getArchiveCmd(String path) => _encode('GET_ARCHIVE:$path');
 
   /// Команда «запросить обновление архива».
   static Uint8List updateArchiveCmd() => _encode('UPDATE_ARCHIVE');
@@ -22,13 +22,23 @@ class BluetoothProtocol {
   /// Проверка, что это ответ ARCHIVE_UPDATING
   static bool isArchiveUpdating(Uint8List data) {
     final msg = _decode(data);
-    return msg == 'ARCHIVE_UPDATING';
+    return msg == 'UPDATING_ARCHIVE' || msg == 'ARCHIVE_UPDATING';
   }
 
   /// Проверка, что это ответ ARCHIVE_READY
   static bool isArchiveReady(Uint8List data) {
     final msg = _decode(data);
-    return msg == 'ARCHIVE_READY';
+    return msg.startsWith('ARCHIVE_READY');
+  }
+
+  /// Если сообщение ARCHIVE_READY содержит путь, извлекаем его.
+  static String? extractArchivePath(Uint8List data) {
+    final msg = _decode(data);
+    const prefix = 'ARCHIVE_READY:';
+    if (msg.startsWith(prefix)) {
+      return msg.substring(prefix.length);
+    }
+    return null;
   }
 
   // ============ helpers ============

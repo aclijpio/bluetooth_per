@@ -25,6 +25,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   bool _isConnected = false;
   bool _isCancelled = false;
   StreamSubscription? _downloadSubscription;
+  String? _readyArchivePath;
 
   BluetoothRepositoryImpl(this._transport, this._flutterBlueClassic);
 
@@ -154,93 +155,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
   @override
   Future<Either<Failure, List<String>>> getFileList() async {
-    if (_connection == null || !_connection!.isConnected) {
-      return Left(ConnectionFailure(message: 'Not connected to device'));
+    if (_readyArchivePath != null) {
+      return Right([_readyArchivePath!]);
     }
-
-    try {
-      print('Getting file list...');
-      final completer = Completer<List<String>>();
-      List<int> buffer = [];
-      bool isReadingFileList = false;
-      int expectedFileCount = 0;
-      int receivedFileCount = 0;
-      List<String> receivedFiles = [];
-
-      final subscription = _connection!.input?.listen(
-        (data) {
-          print('d raw data: ${data.length} байтов');
-          buffer.addAll(data);
-
-          while (buffer.isNotEmpty) {
-            if (!isReadingFileList) {
-              if (buffer.length >= 4) {
-                final countBytes = Uint8List.fromList(buffer.sublist(0, 4));
-                expectedFileCount =
-                    ByteData.view(countBytes.buffer).getInt32(0, Endian.big);
-                buffer = buffer.sublist(4);
-                isReadingFileList = true;
-                print('$expectedFileCount files');
-              } else {
-                break;
-              }
-            } else {
-              if (buffer.length >= 2) {
-                final lengthBytes = Uint8List.fromList(buffer.sublist(0, 2));
-                final nameLength =
-                    ByteData.view(lengthBytes.buffer).getInt16(0, Endian.big);
-
-                if (buffer.length >= 2 + nameLength) {
-                  final nameBytes = buffer.sublist(2, 2 + nameLength);
-                  final fileName = utf8.decode(nameBytes);
-                  receivedFiles.add(fileName);
-                  buffer = buffer.sublist(2 + nameLength);
-                  receivedFileCount++;
-                  print('Received file name: $fileName');
-
-                  if (receivedFileCount == expectedFileCount) {
-                    print('Received all files: $receivedFiles');
-                    _fileList = receivedFiles;
-                    completer.complete(receivedFiles);
-                    isReadingFileList = false;
-                    buffer.clear();
-                  }
-                } else {
-                  break;
-                }
-              } else {
-                break;
-              }
-            }
-          }
-        },
-        onError: (error) {
-          print('Error in input stream: $error');
-          completer.completeError(error);
-        },
-        onDone: () {
-          print('Input stream closed');
-          if (!completer.isCompleted) {
-            completer.complete(_fileList);
-          }
-        },
-      );
-
-      _connection!.output.add(BluetoothProtocol.listFilesCmd());
-
-      final result = await completer.future.timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('Server response timeout');
-        },
-      );
-
-      subscription?.cancel();
-      return Right(result);
-    } catch (e) {
-      print('Error getting file list: $e');
-      return Left(ConnectionFailure(message: e.toString()));
-    }
+    return Left(ConnectionFailure(message: 'Archive path not ready'));
   }
 
   void _sendWriteUTF(String message) {
@@ -306,6 +224,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           fileName.toLowerCase().endsWith('.db.gz');
 
       final sink = file.openWrite();
+      bool sinkClosed = false;
       print('File sink opened');
 
       // Reuse уже открытое соединение, если оно есть
@@ -331,8 +250,8 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
             throw Exception('Connection lost');
           }
 
-          print('Sending GET_FILE request');
-          connection.output.add(BluetoothProtocol.getFileCmd(fileName));
+          print('Sending GET_ARCHIVE request');
+          connection.output.add(BluetoothProtocol.getArchiveCmd(fileName));
 
           final responseCompleter = Completer<bool>();
 
@@ -340,8 +259,11 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
             (data) async {
               if (_isCancelled) {
                 print('Download cancelled');
-                sink.close();
-                connection?.close();
+                if (!sinkClosed) {
+                  await sink.flush();
+                  await sink.close();
+                  sinkClosed = true;
+                }
                 responseCompleter.complete(false);
                 return;
               }
@@ -349,88 +271,83 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
               print('Received data chunk: ${data.length} bytes');
 
               if (!isReadingFileData) {
+                // Собираем первые 8 байт – размер файла
                 responseBuffer.addAll(data);
 
-                if (responseBuffer.length >= 1) {
-                  final response = responseBuffer[0];
-                  print('Server response byte: ${response.toRadixString(16)}');
+                if (responseBuffer.length >= 8) {
+                  final sizeBytes =
+                      Uint8List.fromList(responseBuffer.sublist(0, 8));
+                  expectedFileSize =
+                      ByteData.view(sizeBytes.buffer).getInt64(0, Endian.big);
+                  print('File size received: $expectedFileSize');
 
-                  if (response == 0) {
-                    print('Server reported file not found');
-                    sink.close();
-                    connection?.close();
-                    responseCompleter.complete(false);
-                    return;
+                  final remaining = responseBuffer.sublist(8);
+                  responseBuffer.clear();
+                  isReadingFileData = true;
+
+                  if (remaining.isNotEmpty && !sinkClosed) {
+                    try {
+                      sink.add(remaining);
+                    } catch (_) {}
+                    receivedBytes += remaining.length;
+                    allReceivedData.addAll(remaining);
                   }
 
-                  responseBuffer = responseBuffer.sublist(1);
-
-                  if (responseBuffer.length >= 8) {
-                    final sizeBytes =
-                        Uint8List.fromList(responseBuffer.sublist(0, 8));
-                    expectedFileSize =
-                        ByteData.view(sizeBytes.buffer).getInt64(0, Endian.big);
-                    print('File size from server: $expectedFileSize bytes');
-                    responseBuffer = responseBuffer.sublist(8);
-                    isReadingFileData = true;
-
-                    if (responseBuffer.isNotEmpty) {
-                      sink.add(responseBuffer);
-                      receivedBytes += responseBuffer.length;
-                      allReceivedData.addAll(responseBuffer);
-
-                      final progress = receivedBytes / expectedFileSize;
-                      onProgress?.call(progress, expectedFileSize);
-                      responseBuffer.clear();
-                    }
+                  if (expectedFileSize > 0) {
+                    final progress = receivedBytes / expectedFileSize;
+                    onProgress?.call(progress, expectedFileSize);
                   }
                 }
               } else {
-                sink.add(data);
+                if (!sinkClosed) {
+                  try {
+                    sink.add(data);
+                  } catch (_) {}
+                }
                 receivedBytes += data.length;
                 allReceivedData.addAll(data);
 
-                final progress = receivedBytes / expectedFileSize;
+                if (expectedFileSize > 0) {
+                  final progress = receivedBytes / expectedFileSize;
+                  onProgress?.call(progress, expectedFileSize);
+                  if (receivedBytes >= expectedFileSize) {
+                    print('File download completed successfully');
 
-                onProgress?.call(progress, expectedFileSize);
+                    print('Всего bytes received: ${allReceivedData.length}');
+                    print('Размер файла: $expectedFileSize');
+                    print(
+                        'Первые 20 numbers: ${allReceivedData.take(20).map((b) => b & 0xFF).join(', ')}');
+                    print(
+                        'Последнии 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
 
-                print(
-                    'Download progress: $receivedBytes / $expectedFileSize bytes');
-
-                if (receivedBytes >= expectedFileSize) {
-                  print('File download completed successfully');
-
-                  print('Всего bytes received: ${allReceivedData.length}');
-                  print('Размер файла: $expectedFileSize');
-                  print(
-                      'Первые 20 numbers: ${allReceivedData.take(20).map((b) => b & 0xFF).join(', ')}');
-                  print(
-                      'Последнии 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
-
-                  sink.close();
-                  // Соединение оставляем открытым — его закроем при явном Disconnect
-
-                  // Если файл пришёл в gzip-формате, распаковываем его
-                  String finalPath = file.path;
-                  if (fileName.toLowerCase().endsWith('.gz')) {
-                    try {
-                      final rawFileName = fileName.replaceAll(
-                          RegExp(r'\.gz$', caseSensitive: false), '');
-                      final rawFile = File('${directory.path}/$rawFileName');
-                      await file
-                          .openRead()
-                          .transform(gzip.decoder)
-                          .pipe(rawFile.openWrite());
-                      finalPath = rawFile.path;
-                    } catch (e) {
-                      print('Error while decompressing: $e');
+                    if (!sinkClosed) {
+                      await sink.flush();
+                      await sink.close();
+                      sinkClosed = true;
                     }
-                  }
 
-                  onComplete?.call(finalPath);
+                    // Если файл пришёл в gzip-формате, распаковываем его
+                    String finalPath = file.path;
+                    if (fileName.toLowerCase().endsWith('.gz')) {
+                      try {
+                        final rawFileName = fileName.replaceAll(
+                            RegExp(r'\.gz$', caseSensitive: false), '');
+                        final rawFile = File('${directory.path}/$rawFileName');
+                        await file
+                            .openRead()
+                            .transform(gzip.decoder)
+                            .pipe(rawFile.openWrite());
+                        finalPath = rawFile.path;
+                      } catch (e) {
+                        print('Error while decompressing: $e');
+                      }
+                    }
 
-                  if (!responseCompleter.isCompleted) {
-                    responseCompleter.complete(true);
+                    onComplete?.call(finalPath);
+
+                    if (!responseCompleter.isCompleted) {
+                      responseCompleter.complete(true);
+                    }
                   }
                 }
               }
@@ -459,7 +376,11 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                 print(
                     'Last 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
 
-                sink.close();
+                if (!sinkClosed) {
+                  await sink.flush();
+                  await sink.close();
+                  sinkClosed = true;
+                }
 
                 // Распаковка, если нужно
                 String finalPath = file.path;
@@ -518,8 +439,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         }
       }
 
-      sink.close();
-      connection?.close();
       if (_isCancelled) {
         await file.delete();
         return const Right(true);
@@ -595,20 +514,17 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       return controller.stream;
     }
     final completer = Completer<void>();
-    final subscription = _connection!.input?.listen((data) {
-      // debug log of raw packet
+    final subscription = _connection!.input?.listen((Uint8List data) {
       print('[Repo] recv ${data.length} bytes: ' +
           data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' '));
 
       if (BluetoothProtocol.isArchiveUpdating(data)) {
-        print('[Repo] -> ARCHIVE_UPDATING');
         controller.add('ARCHIVE_UPDATING');
       } else if (BluetoothProtocol.isArchiveReady(data)) {
-        print('[Repo] -> ARCHIVE_READY');
-        controller.add('ARCHIVE_READY');
+        final path = BluetoothProtocol.extractArchivePath(data);
+        _readyArchivePath = path;
+        controller.add(path != null ? 'ARCHIVE_READY:$path' : 'ARCHIVE_READY');
         completer.complete();
-      } else {
-        print('[Repo] unknown message');
       }
     }, onError: (e) {
       controller.addError(e);

@@ -11,6 +11,9 @@ import '../widgets/archive_table.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/simulated_progress_bar.dart';
 import '../models/device.dart';
+import 'package:bluetooth_per/core/di/injection_container.dart' as di;
+import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
+import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
 
 class DeviceFlowScreen extends StatefulWidget {
   const DeviceFlowScreen({super.key});
@@ -25,7 +28,10 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => DeviceFlowCubit(),
+      create: (_) => DeviceFlowCubit(
+        di.sl<BluetoothRepository>(),
+        di.sl<MainData>(),
+      ),
       child: Scaffold(
         body: SafeArea(
           child: Padding(
@@ -228,9 +234,9 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
 class _SearchingBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return const Column(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: const [
+      children: [
         Text(
           'Поиск устройств',
           style: TextStyle(color: Color(0xFF5F5F5F), fontSize: 24),

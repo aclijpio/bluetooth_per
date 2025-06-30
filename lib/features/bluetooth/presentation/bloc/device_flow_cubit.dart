@@ -2,83 +2,157 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'device_flow_state.dart';
 import '../models/device.dart';
 import '../models/archive_entry.dart';
+import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
+import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
+import 'package:bluetooth_per/features/bluetooth/domain/entities/bluetooth_device.dart';
 
 class DeviceFlowCubit extends Cubit<DeviceFlowState> {
-  DeviceFlowCubit() : super(const InitialSearchState());
+  final BluetoothRepository _repository;
+  final MainData _mainData;
 
-  // Simulate starting scanning.
-  void startScanning() async {
+  DeviceFlowCubit(this._repository, this._mainData)
+      : super(const InitialSearchState());
+
+  // Helper: convert bytes/sec to human-readable label.
+  String _formatSpeed(double bytesPerSec) {
+    if (bytesPerSec < 1024) {
+      return '${bytesPerSec.toStringAsFixed(0)} B/s';
+    }
+    final kB = bytesPerSec / 1024;
+    if (kB < 1024) return '${kB.toStringAsFixed(1)} KB/s';
+    final mB = kB / 1024;
+    return '${mB.toStringAsFixed(1)} MB/s';
+  }
+
+  BluetoothDeviceEntity _toEntity(Device d) =>
+      BluetoothDeviceEntity(address: d.macAddress, name: d.name);
+
+  Device _toUi(BluetoothDeviceEntity e) =>
+      Device(name: e.name ?? '', macAddress: e.address);
+
+  // Start scanning for Bluetooth devices using the repository.
+  Future<void> startScanning() async {
     emit(const SearchingState());
 
-    // TODO: Replace this with real bluetooth scan.
-    await Future.delayed(const Duration(seconds: 2));
+    final result = await _repository.scanForDevices();
 
-    final mockDevices = [
-      const Device(name: 'A765CM116', macAddress: 'F8:99:B2:6F:95:FD'),
-      const Device(name: 'O765OO116', macAddress: 'C8:21:B2:1F:11:AA'),
-      const Device(name: 'M766CC116', macAddress: '00:11:22:33:44:55'),
-    ];
+    result.fold(
+      (failure) => emit(const InitialSearchState()),
+      (entities) {
+        final devices = entities.map(_toUi).toList();
 
-    if (mockDevices.length == 1) {
-      connectToDevice(mockDevices.first);
-    } else {
-      emit(DeviceListState(mockDevices));
-    }
+        if (devices.isEmpty) {
+          emit(const InitialSearchState());
+        } else {
+          // Всегда показываем список, даже если устройство одно
+          emit(DeviceListState(devices));
+        }
+      },
+    );
   }
 
-  // User selects a device from list.
-  void connectToDevice(Device device) async {
+  // Connect to a selected device and request archive update.
+  Future<void> connectToDevice(Device device) async {
     emit(UploadingState(device));
 
-    // simulate upload to server
-    await Future.delayed(const Duration(seconds: 2));
-    emit(RefreshingState(device));
+    final connectRes = await _repository.connectToDevice(_toEntity(device));
 
-    // simulate server refreshing
-    await Future.delayed(const Duration(seconds: 3));
+    bool connected = false;
+    connectRes.fold(
+      (failure) => emit(const InitialSearchState()),
+      (_) => connected = true,
+    );
 
-    final archives = [
-      const ArchiveEntry(fileName: 'C66MM89.db', sizeBytes: 1024 * 1024 * 50),
-    ];
-    emit(ConnectedState(connectedDevice: device, archives: archives));
+    if (!connected) return;
+
+    // Listen for archive-update stream.
+    await for (final status in _repository.requestArchiveUpdate()) {
+      if (status == 'ARCHIVE_UPDATING') {
+        emit(RefreshingState(device));
+      } else if (status == 'ARCHIVE_READY') {
+        break;
+      }
+    }
+
+    // After archive ready, query file list.
+    final listRes = await _repository.getFileList();
+
+    listRes.fold(
+      (failure) => emit(const InitialSearchState()),
+      (fileNames) {
+        final archives = fileNames
+            .map((f) => ArchiveEntry(fileName: f, sizeBytes: 0))
+            .toList();
+        emit(ConnectedState(connectedDevice: device, archives: archives));
+      },
+    );
   }
 
-  // User taps download archive.
-  void downloadArchive(ArchiveEntry entry) async {
-    // Preserve connected device reference before we start emitting DownloadingState
+  // Download selected archive using repository and update UI with progress.
+  Future<void> downloadArchive(ArchiveEntry entry) async {
+    if (state is! ConnectedState) return;
+
     final connectedDevice = (state as ConnectedState).connectedDevice;
 
-    const totalParts = 100;
-    for (int i = 0; i <= totalParts; i++) {
-      await Future.delayed(const Duration(milliseconds: 50));
-      emit(
-        DownloadingState(
+    final startTime = DateTime.now();
+
+    emit(DownloadingState(
+      connectedDevice: connectedDevice,
+      entry: entry,
+      progress: 0,
+      speedLabel: '0 B/s',
+    ));
+
+    final downloadRes = await _repository.downloadFile(
+      entry.fileName,
+      _toEntity(connectedDevice),
+      onProgress: (progress, totalBytes) {
+        final elapsed =
+            DateTime.now().difference(startTime).inMilliseconds / 1000.0;
+        final received = (totalBytes ?? 0) * progress;
+        final speed = elapsed > 0 ? received / elapsed : 0.0;
+        final speedLabel = _formatSpeed(speed);
+        emit(DownloadingState(
           connectedDevice: connectedDevice,
           entry: entry,
-          progress: i / totalParts,
-          speedLabel: '1 Mb/s',
-        ),
-      );
-    }
-    // After finishing download, show table.
-    showTable(entry, connectedDevice);
+          progress: progress,
+          speedLabel: speedLabel,
+        ));
+      },
+      onComplete: (filePath) async {
+        await _handleDownloadedDb(filePath, entry, connectedDevice);
+      },
+    );
+
+    downloadRes.fold(
+      (failure) => emit(const InitialSearchState()),
+      (_) {},
+    );
   }
 
-  void showTable(ArchiveEntry entry, Device connectedDevice) {
-    final rows = List<TableRowData>.generate(
-      10,
-      (index) => TableRowData(
-        date: DateTime.now().subtract(Duration(days: index)),
-        wellId: '6547767',
-      ),
-    );
-    emit(
-      TableViewState(
-        connectedDevice: connectedDevice,
-        entry: entry,
-        rows: rows,
-      ),
-    );
+  // Process downloaded SQLite database and show table.
+  Future<void> _handleDownloadedDb(
+      String filePath, ArchiveEntry entry, Device connectedDevice) async {
+    _mainData.dbPath = filePath;
+    _mainData.resetOperationData();
+
+    final status = await _mainData.awaitOperations();
+    if (status != OperStatus.ok) {
+      emit(const InitialSearchState());
+      return;
+    }
+
+    final rows = _mainData.operations.map((op) {
+      final dt = DateTime.fromMillisecondsSinceEpoch(op.dt * 1000);
+      final wellId = op.hole;
+      return TableRowData(date: dt, wellId: wellId);
+    }).toList();
+
+    emit(TableViewState(
+      connectedDevice: connectedDevice,
+      entry: entry,
+      rows: rows,
+    ));
   }
 
   // Reset to initial.

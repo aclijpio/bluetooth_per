@@ -1,5 +1,5 @@
 import 'package:bluetooth_per/features/bluetooth/presentation/bloc/unified_interface_cubit.dart';
-import 'package:bluetooth_per/features/unified/presentation/pages/unified_page.dart';
+import 'package:bluetooth_per/features/bluetooth/presentation/screens/flow_screen.dart';
 import 'package:bluetooth_per/features/web/utils/cubit_provider_widget.dart';
 import 'package:bluetooth_per/features/web/utils/repository_provider_widget.dart';
 import 'package:flutter/material.dart';
@@ -46,7 +46,7 @@ class HomePage extends StatelessWidget {
               create: (context) => UnifiedInterfaceCubit(),
             ),
           ],
-          child: const DerviceFlowScreen(),
+          child: DeviceFlowScreen(),
         ),
       ),
     );
