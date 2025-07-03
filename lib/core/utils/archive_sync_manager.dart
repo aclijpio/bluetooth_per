@@ -61,12 +61,25 @@ class ArchiveSyncManager {
     }
   }
 
-  static String getDisplayName(String path) {
+  static Future<String> getDisplayNameWithStatus(String path) async {
     final file = p.basename(path).replaceAll('.pending', '');
     final match = RegExp(r'^([^_]+)_(.+)$').firstMatch(file);
     final display = match != null ? match.group(1)! : file;
-    print('[ArchiveSyncManager] getDisplayName: path=$path display=$display');
-    return display;
+    // Проверяем статус архива
+    final fileName = p.basename(path).replaceAll('.pending', '');
+    final status = await ExportStatusManager.getArchiveStatus(fileName);
+    String suffix = '';
+    if (status == null ||
+        status['status'] == null ||
+        status['status'] == 'pending' ||
+        status['status'] == 'partial') {
+      suffix = ' (не экспортирован)';
+    } else if (status['status'] == 'exported') {
+      suffix = ' (экспортирован)';
+    }
+    print(
+        '[ArchiveSyncManager] getDisplayNameWithStatus: path=$path display=$display$suffix');
+    return display + suffix;
   }
 }
 
