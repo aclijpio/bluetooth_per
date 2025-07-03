@@ -288,8 +288,7 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
                       _isRequesting = false;
                     });
                   },
-          ),
-          if (_isRequesting && !hasActive) CircularProgressIndicator(),
+          )
         ],
       );
     } else if (state is PendingArchivesState) {
