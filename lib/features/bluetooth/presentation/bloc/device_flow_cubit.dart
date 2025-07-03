@@ -1,5 +1,7 @@
 import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
+import 'package:bluetooth_per/core/utils/export_status_manager.dart'
+    as export_status_manager;
 import 'package:bluetooth_per/features/bluetooth/domain/entities/bluetooth_device.dart';
 import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -187,12 +189,23 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     _mainData.dbPath = filePath;
     _mainData.resetOperationData();
 
+    // Получаем экспортированные операции
+    final archiveFileName = filePath.split('/').last;
+    final status =
+        await export_status_manager.ExportStatusManager.getArchiveStatus(
+            archiveFileName);
+    final exportedOps = status != null && status['exported_ops'] != null
+        ? List<int>.from(status['exported_ops'])
+        : <int>[];
+
     // Сразу показываем таблицу с isLoading=true
     emit(TableViewState(
       connectedDevice: connectedDevice,
       entry: entry,
       rows: const [],
-      operations: _mainData.operations.toList(),
+      operations: _mainData.operations
+          .map((op) => op.copyWith(exported: exportedOps.contains(op.dt)))
+          .toList(),
       isLoading: true,
     ));
 
@@ -222,19 +235,19 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       return;
     }
 
-    final rows = _mainData.operations.map((op) {
-      final dt = DateTime.fromMillisecondsSinceEpoch(op.dt * 1000);
-      final wellId = op.hole;
-      return TableRowData(date: dt, wellId: wellId);
-    }).toList();
-
-    print(
-        '[DeviceFlowCubit] _handleDownloadedDb: emitting TableViewState with ${rows.length} rows');
+    // После загрузки данных обновляем exported
+    final updatedOps = _mainData.operations
+        .map((op) => op.copyWith(exported: exportedOps.contains(op.dt)))
+        .toList();
     emit(TableViewState(
       connectedDevice: connectedDevice,
       entry: entry,
-      rows: rows,
-      operations: _mainData.operations.toList(),
+      rows: updatedOps
+          .map((op) => TableRowData(
+              date: DateTime.fromMillisecondsSinceEpoch(op.dt * 1000),
+              wellId: op.hole))
+          .toList(),
+      operations: updatedOps,
       isLoading: false,
     ));
   }
@@ -372,7 +385,8 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
             ..canSend = false
             ..checkError = false;
           exportedOps.add(op.dt);
-          await ExportStatusManager.addExportedOp(archiveFileName, op.dt);
+          await export_status_manager.ExportStatusManager.addExportedOp(
+              archiveFileName, op.dt);
         } else {
           currentOps[idx] = Operation(
             dt: op.dt,
@@ -409,10 +423,10 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     final allExported = currentOps.every((op) => !op.canSend);
     if (allExported) {
       await ArchiveSyncManager.markExported(_mainData.dbPath);
-      await ExportStatusManager.setArchiveStatus(
+      await export_status_manager.ExportStatusManager.setArchiveStatus(
           archiveFileName, 'exported', allOpDts);
     } else {
-      await ExportStatusManager.setArchiveStatus(
+      await export_status_manager.ExportStatusManager.setArchiveStatus(
           archiveFileName, 'partial', allOpDts);
     }
 

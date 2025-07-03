@@ -31,7 +31,9 @@ class ArchiveTable extends StatelessWidget {
           allSelected: _allSelected(operations),
           onAllSelected: (v) {
             final updatedOps = operations
-                .map((op) => op.copyWith(selected: v ?? false))
+                .map((op) => (op.checkError || op.exported)
+                    ? op // не меняем состояние чекбокса для ошибок/экспортированных
+                    : op.copyWith(selected: v ?? false))
                 .toList();
             onSelectionChanged?.call(updatedOps.any((op) => op.selected));
             BlocProvider.of<DeviceFlowCubit>(context)
@@ -53,6 +55,8 @@ class ArchiveTable extends StatelessWidget {
                     return _ArchiveTableRow(
                       op: op,
                       onChanged: (v) {
+                        if (op.checkError || op.exported)
+                          return; // не даём менять
                         final updatedOps =
                             operations.asMap().entries.map((entry) {
                           final idx = entry.key;
@@ -196,7 +200,7 @@ class _ArchiveTableRow extends StatelessWidget {
           _checkbox(
             op.selected,
             onChanged,
-            enabled: op.canSend,
+            enabled: !(op.checkError || op.exported),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -229,8 +233,18 @@ class _ArchiveTableRow extends StatelessWidget {
                 SizedBox(
                   width: 40,
                   child: op.checkError
-                      ? const Icon(Icons.error, color: Colors.red, size: 22)
-                      : const SizedBox.shrink(),
+                      ? Tooltip(
+                          message: 'Ошибка при экспорте',
+                          child: const Icon(Icons.error,
+                              color: Colors.red, size: 22),
+                        )
+                      : op.exported
+                          ? Tooltip(
+                              message: 'Экспортировано успешно',
+                              child: const Icon(Icons.check_circle,
+                                  color: Colors.green, size: 22),
+                            )
+                          : const SizedBox.shrink(),
                 ),
               ],
             ),

@@ -22,6 +22,7 @@ class Operation {
   bool canSend = false;
 
   bool checkError = false; // Ошибка при проверке на сервере
+  bool exported = false; // Операция успешно экспортирована
 
   Operation({
     required this.dt,
@@ -109,6 +110,7 @@ class Operation {
     bool? selected,
     bool? canSend,
     bool? checkError,
+    bool? exported,
   }) {
     final op = Operation(
       dt: dt ?? this.dt,
@@ -131,6 +133,7 @@ class Operation {
     op.selected = selected ?? this.selected;
     op.canSend = canSend ?? this.canSend;
     op.checkError = checkError ?? this.checkError;
+    op.exported = exported ?? this.exported;
     return op;
   }
 }
