@@ -254,8 +254,8 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
   // Reset to initial.
   void reset() {
-    print('[DeviceFlowCubit] reset called');
-    _loadPending();
+    _mainData.stopAutoRetryExport();
+    emit(const InitialSearchState());
   }
 
   /// Загружает локальный архив без подключения к устройству.

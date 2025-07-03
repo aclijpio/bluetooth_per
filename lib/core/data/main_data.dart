@@ -5,6 +5,9 @@ import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
 import 'package:bluetooth_per/features/web/utils/db_layer.dart';
 import 'package:bluetooth_per/features/web/utils/web_layer.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/material.dart';
+import 'dart:async';
 
 enum OperStatus { ok, dbError, netError, filePathError }
 
@@ -18,6 +21,9 @@ class MainData {
   //Database? db;
 
   final Map<int, List<Point>> _pointsCache = {};
+
+  StreamSubscription<ConnectivityResult>? _connectivitySub;
+  BuildContext? _snackbarContext;
 
   Future<OperStatus> awaitOperations() async {
     print('[MainData] awaitOperations: dbPath=$dbPath');
@@ -171,5 +177,41 @@ class MainData {
     }
     allSelected =
         operations.where((e) => e.canSend && !e.selected).toList().isEmpty;
+  }
+
+  void startAutoRetryExport(BuildContext context) {
+    _snackbarContext = context;
+    _connectivitySub?.cancel();
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((status) {
+      if (status != ConnectivityResult.none) {
+        _retryFailedExports();
+      }
+    });
+  }
+
+  void stopAutoRetryExport() {
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
+  }
+
+  Future<void> _retryFailedExports() async {
+    if (_snackbarContext != null) {
+      ScaffoldMessenger.of(_snackbarContext!).showSnackBar(
+        SnackBar(
+            content:
+                Text('Интернет восстановлен. Повторная попытка экспорта...')),
+      );
+    }
+    final failedOps =
+        operations.where((op) => op.checkError && op.canSend).toList();
+    for (final op in failedOps) {
+      final result = await awaitSendingOperationWithProgress(op, (progress) {});
+      if (result == 200) {
+        op.checkError = false;
+        op.canSend = false;
+        op.selected = false;
+        op.exported = true;
+      }
+    }
   }
 }
