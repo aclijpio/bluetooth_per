@@ -1,21 +1,16 @@
+import 'package:bluetooth_per/common/widgets/app_header.dart';
 import 'package:bluetooth_per/features/bluetooth/presentation/bloc/unified_interface_cubit.dart';
 import 'package:bluetooth_per/features/bluetooth/presentation/screens/flow_screen.dart';
 import 'package:bluetooth_per/features/web/utils/cubit_provider_widget.dart';
 import 'package:bluetooth_per/features/web/utils/repository_provider_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-/*
-import 'package:flutter_localizations/flutter_localizations.dart';
-*/
-import 'package:intl/intl.dart';
 
+import 'core/data/main_data.dart';
 import 'core/di/injection_container.dart' as di;
+import 'features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
 import 'features/bluetooth/presentation/bloc/device_flow_cubit.dart';
-import 'features/bluetooth/domain/repositories/bluetooth_repository.dart';
-import 'core/data/main_data.dart';
-import 'core/utils/archive_sync_manager.dart';
-import 'package:bluetooth_per/common/widgets/app_header.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -7,7 +7,6 @@ import '../../features/bluetooth/data/repositories/bluetooth_repository_impl.dar
 import '../../features/bluetooth/data/transport/bluetooth_transport.dart';
 import '../../features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import '../../features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
-import 'injection_container.dart';
 
 final sl = GetIt.instance;
 

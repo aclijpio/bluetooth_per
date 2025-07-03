@@ -1,8 +1,8 @@
+import 'package:bluetooth_per/common/bloc/operation_sending_cubit.dart';
 import 'package:bluetooth_per/core/data/main_data.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/operations_cubit.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/operations_state.dart';
-import 'package:bluetooth_per/common/bloc/operation_sending_cubit.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/sending_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';

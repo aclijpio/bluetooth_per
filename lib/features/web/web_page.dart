@@ -1,5 +1,5 @@
-import 'package:bluetooth_per/features/web/presentation/bloc/operations_cubit.dart';
 import 'package:bluetooth_per/common/bloc/operation_sending_cubit.dart';
+import 'package:bluetooth_per/features/web/presentation/bloc/operations_cubit.dart';
 import 'package:bluetooth_per/features/web/presentation/widgets/device_info_widget.dart';
 import 'package:bluetooth_per/features/web/presentation/widgets/file_path_widget.dart';
 import 'package:bluetooth_per/features/web/presentation/widgets/operations_list_widget.dart';

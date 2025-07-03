@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:http/http.dart' as http;
 import 'package:bluetooth_per/core/utils/constants.dart';
+import 'package:http/http.dart' as http;
 
 class ServerConnection {
   static const String _address = AppConstants.webApiBaseUrl; //Сервер

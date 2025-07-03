@@ -1,14 +1,14 @@
+import 'package:bluetooth_per/core/data/main_data.dart';
+import 'package:bluetooth_per/core/utils/constants.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/utils/db_update_checker.dart';
 import '../../domain/entities/bluetooth_device.dart';
 import '../../domain/entities/file_download_info.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
-import '../../../../core/utils/db_update_checker.dart';
 import 'bluetooth_event.dart';
 import 'bluetooth_state.dart';
-import 'package:bluetooth_per/core/data/main_data.dart';
-import 'package:bluetooth_per/core/utils/constants.dart';
 
 class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
   final BluetoothRepository repository;

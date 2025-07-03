@@ -1,7 +1,8 @@
-import 'package:equatable/equatable.dart';
-import '../models/device.dart';
-import '../models/archive_entry.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
+import 'package:equatable/equatable.dart';
+
+import '../models/archive_entry.dart';
+import '../models/device.dart';
 
 // Base class for all states.
 abstract class DeviceFlowState extends Equatable {

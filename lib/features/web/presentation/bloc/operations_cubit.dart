@@ -1,6 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-
 import '../../../../core/data/main_data.dart';
 import '../../../../core/data/source/operation.dart';
 import 'operations_state.dart';

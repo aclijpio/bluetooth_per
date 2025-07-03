@@ -1,13 +1,13 @@
+import 'package:bluetooth_per/common/widgets/progress_bar.dart';
+import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/data/main_data.dart';
-import '../models/archive_entry.dart';
-import 'package:bluetooth_per/core/data/source/operation.dart';
 import '../bloc/device_flow_cubit.dart';
 import '../bloc/device_flow_state.dart';
-import 'package:bluetooth_per/common/widgets/progress_bar.dart';
+import '../models/archive_entry.dart';
 
 class ArchiveTable extends StatelessWidget {
   final ArchiveEntry entry;
