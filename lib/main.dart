@@ -4,6 +4,10 @@ import 'package:bluetooth_per/features/web/utils/cubit_provider_widget.dart';
 import 'package:bluetooth_per/features/web/utils/repository_provider_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+/*
+import 'package:flutter_localizations/flutter_localizations.dart';
+*/
+import 'package:intl/intl.dart';
 
 import 'core/di/injection_container.dart' as di;
 import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
@@ -26,7 +30,15 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Quantor Data Transfer',
-
+/*      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],*/
+      supportedLocales: const [
+        Locale('ru'),
+        Locale('en'),
+      ],
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,

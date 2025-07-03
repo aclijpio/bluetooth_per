@@ -7,6 +7,7 @@ import 'package:bluetooth_per/features/web/presentation/widgets/send_button_widg
 import 'package:bluetooth_per/features/web/presentation/widgets/sending_progress_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 
 class WebPage extends StatelessWidget {
   const WebPage({super.key});
@@ -36,7 +37,8 @@ class WebPage extends StatelessWidget {
                             .resetSendingState();
                         context.read<OperationsCubit>().getOperations();
                       },
-                      child: const Text('Запросить'),
+                      child: Text(
+                          Intl.message('Запросить', name: 'requestButton')),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -51,7 +53,8 @@ class WebPage extends StatelessWidget {
                             .read<OperationSendingCubit>()
                             .resetSendingState();
                       },
-                      child: const Text('Очистить'),
+                      child:
+                          Text(Intl.message('Очистить', name: 'clearButton')),
                     ),
                   ),
                 ],

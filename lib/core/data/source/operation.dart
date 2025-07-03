@@ -88,4 +88,49 @@ class Operation {
       "pCnt": pCnt,
     };
   }
+
+  Operation copyWith({
+    int? dt,
+    int? dtStop,
+    int? maxP,
+    int? idOrg,
+    int? workType,
+    String? ngdu,
+    String? field,
+    String? section,
+    String? bush,
+    String? hole,
+    String? brigade,
+    double? lat,
+    double? lon,
+    int? equipment,
+    int? pCnt,
+    List<Point>? points,
+    bool? selected,
+    bool? canSend,
+    bool? checkError,
+  }) {
+    final op = Operation(
+      dt: dt ?? this.dt,
+      dtStop: dtStop ?? this.dtStop,
+      maxP: maxP ?? this.maxP,
+      idOrg: idOrg ?? this.idOrg,
+      workType: workType ?? this.workType,
+      ngdu: ngdu ?? this.ngdu,
+      field: field ?? this.field,
+      section: section ?? this.section,
+      bush: bush ?? this.bush,
+      hole: hole ?? this.hole,
+      brigade: brigade ?? this.brigade,
+      lat: lat ?? this.lat,
+      lon: lon ?? this.lon,
+      equipment: equipment ?? this.equipment,
+      pCnt: pCnt ?? this.pCnt,
+      points: points ?? this.points,
+    );
+    op.selected = selected ?? this.selected;
+    op.canSend = canSend ?? this.canSend;
+    op.checkError = checkError ?? this.checkError;
+    return op;
+  }
 }

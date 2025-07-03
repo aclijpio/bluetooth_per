@@ -463,4 +463,8 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       ));
     }
   }
+
+  void cancelSearch() {
+    emit(const InitialSearchState());
+  }
 }

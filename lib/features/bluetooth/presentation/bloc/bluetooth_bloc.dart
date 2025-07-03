@@ -8,6 +8,7 @@ import '../../../../core/utils/db_update_checker.dart';
 import 'bluetooth_event.dart';
 import 'bluetooth_state.dart';
 import 'package:bluetooth_per/core/data/main_data.dart';
+import 'package:bluetooth_per/core/utils/constants.dart';
 
 class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
   final BluetoothRepository repository;
@@ -68,7 +69,7 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
     StartScanning event,
     Emitter<BluetoothState> emit,
   ) async {
-    const maxAttempts = 3;
+    const maxAttempts = AppConstants.bluetoothScanMaxAttempts;
     int attempt = 0;
     List<BluetoothDeviceEntity> foundDevices = [];
 

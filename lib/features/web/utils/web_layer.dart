@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 
 import '../../../core/data/source/operation.dart';
 import 'server_connection.dart';
+import 'package:bluetooth_per/core/utils/constants.dart';
 
 class WebLayer {
   static const String constUuid = "595a31f7-ad09-43ff-9a04-1c29bfe795cb";
@@ -13,7 +14,7 @@ class WebLayer {
       String serial, List<Operation> operations) async {
     Map<String, dynamic> request = {
       "serial": serial,
-      "uuid": constUuid,
+      "uuid": AppConstants.webApiUuid,
       "operations": operations.map((e) => e.dtAndCount()).toList(),
     };
 
@@ -21,7 +22,7 @@ class WebLayer {
     print('[WebLayer] exportOperList: request=$reqStr');
     dynamic response =
         await ServerConnection.postReq(reqStr, 'get_archive_list')
-            .timeout(const Duration(seconds: 15), onTimeout: () {
+            .timeout(AppConstants.webApiTimeout, onTimeout: () {
       return 408;
     });
 
@@ -48,7 +49,7 @@ class WebLayer {
     print('[WebLayer] exportOperData: request=$reqStr');
     dynamic response =
         await ServerConnection.postReqRetry(reqStr, 'send_archive')
-            .timeout(const Duration(seconds: 100040), onTimeout: () {
+            .timeout(AppConstants.webApiLongTimeout, onTimeout: () {
       print('[WebLayer] exportOperData: timeout');
       return 408;
     });
@@ -73,7 +74,7 @@ class WebLayer {
     final dio = Dio();
     try {
       final response = await dio.post(
-        'http://tms.quantor-t.ru:8080/send_archive',
+        '${AppConstants.webApiBaseUrl}/send_archive',
         data: reqStr,
         options: Options(headers: {'Content-Type': 'application/json'}),
       );

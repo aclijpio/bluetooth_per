@@ -15,6 +15,7 @@ import '../../domain/repositories/bluetooth_repository.dart';
 import '../protocol/bluetooth_protocol.dart';
 import '../transport/bluetooth_transport.dart';
 import '../../../../core/utils/archive_sync_manager.dart';
+import 'package:bluetooth_per/core/utils/constants.dart';
 
 class BluetoothRepositoryImpl implements BluetoothRepository {
   final FlutterBlueClassic _flutterBlueClassic;
@@ -39,8 +40,9 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   @override
   Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices() async {
     try {
-      const int maxAttempts = 4; // всего до ~20 секунд сканирования
-      const Duration attemptDuration = Duration(seconds: 5);
+      const int maxAttempts = AppConstants.bluetoothScanMaxAttempts;
+      const Duration attemptDuration =
+          AppConstants.bluetoothScanAttemptDuration;
 
       final found = <BluetoothDeviceEntity>[];
 
@@ -93,7 +95,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     print('Connecting to device: ${device.address}');
     BluetoothConnection? connection;
     int attempts = 0;
-    const maxAttempts = 10;
+    const maxAttempts = AppConstants.bluetoothConnectMaxAttempts;
     // Несколько попыток подключения
     while (attempts < maxAttempts) {
       try {
@@ -101,19 +103,19 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
         if (connection == null) {
           attempts++;
-          await Future.delayed(const Duration(milliseconds: 500));
+          await Future.delayed(AppConstants.bluetoothConnectRetryDelay);
           continue;
         }
 
         int waitAttempts = 0;
         while (!connection.isConnected && waitAttempts < 3) {
-          await Future.delayed(const Duration(milliseconds: 100));
+          await Future.delayed(AppConstants.bluetoothConnectWaitDelay);
           waitAttempts++;
         }
 
         if (!connection.isConnected) {
           attempts++;
-          await Future.delayed(const Duration(milliseconds: 500));
+          await Future.delayed(AppConstants.bluetoothConnectRetryDelay);
           continue;
         }
 
@@ -121,7 +123,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       } catch (e) {
         attempts++;
         if (attempts < maxAttempts) {
-          await Future.delayed(const Duration(milliseconds: 500));
+          await Future.delayed(AppConstants.bluetoothConnectRetryDelay);
         }
       }
     }

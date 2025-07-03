@@ -1,9 +1,10 @@
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:bluetooth_per/core/utils/constants.dart';
 
 class ServerConnection {
-  static const String _address = 'http://tms.quantor-t.ru:8080'; //Сервер
+  static const String _address = AppConstants.webApiBaseUrl; //Сервер
   //static const String _address = 'http://localhost:8080';
 
   static Future<dynamic> postReq(String message, String path) async {
@@ -35,7 +36,7 @@ class ServerConnection {
   /// То же, что [postReq], но делает до [maxAttempts] повторов
   /// с экспоненциальной задержкой (1s, 2s, 4s …).
   static Future<dynamic> postReqRetry(String message, String path,
-      {int maxAttempts = 3}) async {
+      {int maxAttempts = AppConstants.bluetoothScanMaxAttempts}) async {
     int attempt = 0;
     while (attempt < maxAttempts) {
       print(

@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:intl/intl.dart';
 
 class FilePathWidget extends StatefulWidget {
   const FilePathWidget({
@@ -27,10 +28,12 @@ class _FilePathWidgetState extends State<FilePathWidget> {
     try {
       final response = await ServerConnection.getReq('get_db_file');
 
-
       if (response is int) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error downloading file: $response')),
+          SnackBar(
+              content: Text(Intl.message('Error downloading file: ',
+                      name: 'errorDownloadingFile') +
+                  response.toString())),
         );
         return;
       }
@@ -44,11 +47,15 @@ class _FilePathWidgetState extends State<FilePathWidget> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Database file downloaded successfully')),
+        SnackBar(
+            content: Text(Intl.message('Database file downloaded successfully',
+                name: 'successDownloadingFile'))),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(
+            content: Text(
+                Intl.message('Error: ', name: 'errorLabel') + e.toString())),
       );
     } finally {
       setState(() {
@@ -93,14 +100,17 @@ class _FilePathWidgetState extends State<FilePathWidget> {
                     });
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text('Выберите файл с расширением .db')),
+                      SnackBar(
+                          content: Text(Intl.message(
+                              'Выберите файл с расширением .db',
+                              name: 'selectDbFile'))),
                     );
                   }
                 }
               },
               icon: const Icon(Icons.folder_open),
-              label: const Text('Выбрать файл'),
+              label:
+                  Text(Intl.message('Выбрать файл', name: 'chooseFileButton')),
             ),
           ],
         ),
