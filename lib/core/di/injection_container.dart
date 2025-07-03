@@ -1,4 +1,4 @@
-import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
+import 'package:bluetooth_per/core/data/main_data.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
 import 'package:get_it/get_it.dart';
 import 'package:logger/logger.dart';

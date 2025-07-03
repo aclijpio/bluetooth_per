@@ -7,6 +7,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'core/di/injection_container.dart' as di;
 import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
+import 'features/bluetooth/presentation/bloc/device_flow_cubit.dart';
+import 'features/bluetooth/domain/repositories/bluetooth_repository.dart';
+import 'core/data/main_data.dart';
+import 'core/utils/archive_sync_manager.dart';
+import 'package:bluetooth_per/common/widgets/app_header.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +26,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Quantor Data Transfer',
+
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
@@ -45,8 +51,23 @@ class HomePage extends StatelessWidget {
             BlocProvider(
               create: (context) => UnifiedInterfaceCubit(),
             ),
+            BlocProvider(
+              create: (_) => DeviceFlowCubit(
+                di.sl<BluetoothRepository>(),
+                di.sl<MainData>(),
+              ),
+            ),
           ],
-          child: DeviceFlowScreen(),
+          child: const Scaffold(
+            extendBodyBehindAppBar: true,
+            backgroundColor: Colors.white,
+            body: Column(
+              children: [
+                SafeArea(child: AppHeader()),
+                Expanded(child: DeviceFlowScreen()),
+              ],
+            ),
+          ),
         ),
       ),
     );

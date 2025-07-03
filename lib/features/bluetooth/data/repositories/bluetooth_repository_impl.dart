@@ -7,12 +7,14 @@ import 'package:dartz/dartz.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../../core/error/failures.dart';
 import '../../domain/entities/bluetooth_device.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
 import '../protocol/bluetooth_protocol.dart';
 import '../transport/bluetooth_transport.dart';
+import '../../../../core/utils/archive_sync_manager.dart';
 
 class BluetoothRepositoryImpl implements BluetoothRepository {
   final FlutterBlueClassic _flutterBlueClassic;
@@ -27,38 +29,60 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   StreamSubscription? _downloadSubscription;
   String? _readyArchivePath;
 
+  /// Паттерн допустимого имени устройства «Quantor A000AA0000».
+  /// Пример: Quantor A123BC, Quantor A123BC1234.
+  static final RegExp _quantorNameRegExp =
+      RegExp(r'^Quantor [A-Z]\d{3}[A-Z]{2}\d{0,4}$', caseSensitive: false);
+
   BluetoothRepositoryImpl(this._transport, this._flutterBlueClassic);
 
   @override
   Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices() async {
     try {
-      _flutterBlueClassic.stopScan();
+      const int maxAttempts = 4; // всего до ~20 секунд сканирования
+      const Duration attemptDuration = Duration(seconds: 5);
 
-      final devices = <BluetoothDeviceEntity>[];
+      final found = <BluetoothDeviceEntity>[];
 
-      _scanSubscription?.cancel();
-      _scanSubscription = _flutterBlueClassic.scanResults.listen((device) {
-        if (!devices.any((d) => d.address == device.address)) {
-          devices.add(
-            BluetoothDeviceEntity(
-              address: device.address,
-              name: device.name,
-            ),
-          );
-        }
-        if ((device.name ?? '').toLowerCase().contains('quantor')) {
-          _flutterBlueClassic.stopScan();
-          _scanSubscription?.cancel();
-        }
-      });
+      for (int attempt = 0; attempt < maxAttempts; attempt++) {
+        _flutterBlueClassic.stopScan(); // на всякий
 
-      _flutterBlueClassic.startScan();
-      await Future.delayed(const Duration(seconds: 10));
+        final completer = Completer<void>();
 
-      _flutterBlueClassic.stopScan();
-      await _scanSubscription?.cancel();
+        _scanSubscription?.cancel();
+        _scanSubscription = _flutterBlueClassic.scanResults.listen((d) {
+          final name = d.name ?? '';
+          if (!_quantorNameRegExp.hasMatch(name)) return;
 
-      return Right(devices);
+          // сохраняем новое устройство
+          if (!found.any((e) => e.address == d.address)) {
+            found.add(BluetoothDeviceEntity(address: d.address, name: d.name));
+          }
+
+          // как только нашли хотя бы одно, завершаем попытку досрочно
+/*
+          if (!completer.isCompleted) completer.complete();
+*/
+        });
+
+        _flutterBlueClassic.startScan();
+
+        // ждём либо находку, либо таймаут 5 cек
+        await Future.any([
+          completer.future,
+          Future.delayed(attemptDuration),
+        ]);
+
+        _flutterBlueClassic.stopScan();
+        await _scanSubscription?.cancel();
+
+        if (found.isNotEmpty) break; // успех
+
+        // небольшая пауза перед следующей попыткой
+        await Future.delayed(const Duration(seconds: 1));
+      }
+
+      return Right(found);
     } catch (e) {
       return Left(BluetoothFailure(message: e.toString()));
     }
@@ -216,14 +240,61 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     try {
       _isCancelled = false;
       print('Starting file download for: $fileName');
+
       final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/$fileName');
-      print('Will save file to: ${file.path}');
+
+      // ----------------- Выбираем целевую директорию -----------------
+      // Пытаемся сохранить в общий каталог Download/quan во внешнем хранилище.
+      Directory downloadDir;
+      try {
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null) {
+          // Для пути вида "/storage/emulated/0/Android/data/..." берём часть до
+          // "Android" и добавляем "Download/quan".
+          final rootPath = extDir.path.split('Android').first;
+          downloadDir = Directory(p.join(rootPath, 'Download', 'quan'));
+        } else {
+          // Fallback на стандартный путь
+          downloadDir = Directory('/storage/emulated/0/Download/quan');
+        }
+      } catch (_) {
+        downloadDir = Directory('/storage/emulated/0/Download/quan');
+      }
+
+      if (!(await downloadDir.exists())) {
+        await downloadDir.create(recursive: true);
+      }
+
+      // Допустим в пути могут быть разделители "/" или "\\".
+      final sanitizedFileName = fileName.split(RegExp(r'[\\/]')).last;
+
+      // Получаем имя устройства без "Quantor " и пробелов
+      String deviceName = '';
+      if (device.name != null) {
+        deviceName = device.name!
+            .replaceFirst(RegExp(r'^Quantor ', caseSensitive: false), '')
+            .replaceAll(' ', '');
+      }
+
+      // Формируем итоговое имя файла: <deviceName>_<fileName>.db.pending (без .gz)
+      String baseName = sanitizedFileName.replaceAll(
+          RegExp(r'\.gze?$', caseSensitive: false), '');
+      if (!baseName.endsWith('.db')) baseName = '$baseName.db';
+      final finalFileName = deviceName.isNotEmpty
+          ? '${deviceName}_$baseName.pending'
+          : '$baseName.pending';
+
+      // Сначала сохраняем во временный файл внутри internal storage, затем
+      // перенесём. Это гарантирует, что у нас есть права на запись.
+      final tempFile = File(p.join(directory.path, sanitizedFileName));
+      await tempFile.parent.create(recursive: true);
+
+      print('Will save temporary file to: ${tempFile.path}');
 
       bool isDbFile = fileName.toLowerCase().endsWith('.db') ||
           fileName.toLowerCase().endsWith('.db.gz');
 
-      final sink = file.openWrite();
+      final sink = tempFile.openWrite();
       bool sinkClosed = false;
       print('File sink opened');
 
@@ -326,21 +397,44 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                       sinkClosed = true;
                     }
 
-                    // Если файл пришёл в gzip-формате, распаковываем его
-                    String finalPath = file.path;
-                    if (fileName.toLowerCase().endsWith('.gz')) {
+                    // -------- Сохраняем в <documents>/download/quan --------
+                    String finalPath;
+
+                    if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
                       try {
-                        final rawFileName = fileName.replaceAll(
-                            RegExp(r'\.gz$', caseSensitive: false), '');
-                        final rawFile = File('${directory.path}/$rawFileName');
-                        await file
+                        final rawFile =
+                            File(p.join(downloadDir.path, finalFileName));
+                        await tempFile
                             .openRead()
                             .transform(gzip.decoder)
                             .pipe(rawFile.openWrite());
                         finalPath = rawFile.path;
+                        await tempFile.delete();
+                        await ArchiveSyncManager.addPending(finalPath);
                       } catch (e) {
                         print('Error while decompressing: $e');
+                        finalPath = tempFile.path; // fallback
                       }
+                    } else {
+                      // Просто переносим файл в download/quan
+                      final destPath = p.join(downloadDir.path, finalFileName);
+                      bool moved = false;
+                      try {
+                        await tempFile.rename(destPath);
+                        moved = true;
+                        await ArchiveSyncManager.addPending(destPath);
+                      } catch (_) {
+                        try {
+                          await tempFile.copy(destPath);
+                          await tempFile.delete();
+                          moved = true;
+                          await ArchiveSyncManager.addPending(destPath);
+                        } catch (e) {
+                          print('Cannot move file to downloads: $e');
+                        }
+                      }
+                      finalPath = moved ? destPath : tempFile.path;
+                      await ArchiveSyncManager.addPending(finalPath);
                     }
 
                     onComplete?.call(finalPath);
@@ -382,21 +476,43 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                   sinkClosed = true;
                 }
 
-                // Распаковка, если нужно
-                String finalPath = file.path;
-                if (fileName.toLowerCase().endsWith('.gz')) {
+                // -------- Перемещаем/распаковываем в download/quan (onDone) --------
+                String finalPath;
+
+                if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
                   try {
-                    final rawFileName = fileName.replaceAll(
-                        RegExp(r'\.gz$', caseSensitive: false), '');
-                    final rawFile = File('${directory.path}/$rawFileName');
-                    await file
+                    final rawFile =
+                        File(p.join(downloadDir.path, finalFileName));
+                    await tempFile
                         .openRead()
                         .transform(gzip.decoder)
                         .pipe(rawFile.openWrite());
                     finalPath = rawFile.path;
+                    await tempFile.delete();
+                    await ArchiveSyncManager.addPending(finalPath);
                   } catch (e) {
                     print('Error while decompressing (onDone): $e');
+                    finalPath = tempFile.path;
                   }
+                } else {
+                  final destPath = p.join(downloadDir.path, finalFileName);
+                  bool moved = false;
+                  try {
+                    await tempFile.rename(destPath);
+                    moved = true;
+                    await ArchiveSyncManager.addPending(destPath);
+                  } catch (_) {
+                    try {
+                      await tempFile.copy(destPath);
+                      await tempFile.delete();
+                      moved = true;
+                      await ArchiveSyncManager.addPending(destPath);
+                    } catch (e) {
+                      print('Cannot move file to downloads (onDone): $e');
+                    }
+                  }
+                  finalPath = moved ? destPath : tempFile.path;
+                  await ArchiveSyncManager.addPending(finalPath);
                 }
 
                 onComplete?.call(finalPath);
@@ -413,7 +529,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           if (response || _isCancelled) {
             if (_isCancelled) {
               print('Download cancelled successfully');
-              await file.delete();
+              await tempFile.delete();
               return const Right(true);
             }
             print('File download completed successfully');
@@ -440,7 +556,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       }
 
       if (_isCancelled) {
-        await file.delete();
+        await tempFile.delete();
         return const Right(true);
       }
       return Left(FileOperationFailure(

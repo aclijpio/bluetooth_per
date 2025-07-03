@@ -1,4 +1,4 @@
-import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
+import 'package:bluetooth_per/core/data/main_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 

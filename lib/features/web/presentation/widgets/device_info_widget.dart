@@ -1,9 +1,8 @@
-import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
+import 'package:bluetooth_per/core/data/main_data.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/operations_cubit.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/operations_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
 
 class DeviceInfoWidget extends StatelessWidget {
   const DeviceInfoWidget({super.key});
@@ -26,7 +25,8 @@ class DeviceInfoWidget extends StatelessWidget {
                         : 'При загрузке файла произошла ошибка. Код ошибки: ${state.errorCode}',
             style: const TextStyle(color: Colors.red),
           );
-        } */else {
+        } */
+        else {
           return Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [

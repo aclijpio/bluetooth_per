@@ -1,8 +1,9 @@
 import 'dart:convert';
 
 import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
-import 'package:bluetooth_per/features/web/data/source/operation.dart';
+import 'package:dio/dio.dart';
 
+import '../../../core/data/source/operation.dart';
 import 'server_connection.dart';
 
 class WebLayer {
@@ -15,16 +16,16 @@ class WebLayer {
       "uuid": constUuid,
       "operations": operations.map((e) => e.dtAndCount()).toList(),
     };
+
     String reqStr = json.encode(request);
-    // print(reqStr);
-    // return OperListResponse(
-    //     200, [1733207145, 1733207215, 1733212108, 1733387339, 1733739234]);
+    print('[WebLayer] exportOperList: request=$reqStr');
     dynamic response =
-        await ServerConnection.postReqRetry(reqStr, 'get_archive_list')
+        await ServerConnection.postReq(reqStr, 'get_archive_list')
             .timeout(const Duration(seconds: 15), onTimeout: () {
       return 408;
     });
 
+    print('[WebLayer] exportOperList: response=$response');
     if (response.runtimeType == int) {
       return OperListResponse(response, []);
     } else {
@@ -44,19 +45,45 @@ class WebLayer {
       "points": op.points.map((e) => e.toSendMap()).toList(),
     };
     String reqStr = json.encode(request);
-    //print(reqStr);
-    // await Future.delayed(Duration(seconds: 2)); //!debug
-    // return 200;
+    print('[WebLayer] exportOperData: request=$reqStr');
     dynamic response =
         await ServerConnection.postReqRetry(reqStr, 'send_archive')
             .timeout(const Duration(seconds: 100040), onTimeout: () {
+      print('[WebLayer] exportOperData: timeout');
       return 408;
     });
 
+    print('[WebLayer] exportOperData: response=$response');
     if (response.runtimeType == int) {
       return response;
     } else {
       return 200;
+    }
+  }
+
+  static Future<int> exportOperDataWithProgress(
+      String serial, Operation op, void Function(double) onProgress) async {
+    Map<String, dynamic> request = {
+      "serial": serial,
+      "uuid": constUuid,
+      "operation": op.toSendMap(),
+      "points": op.points.map((e) => e.toSendMap()).toList(),
+    };
+    String reqStr = json.encode(request);
+    final dio = Dio();
+    try {
+      final response = await dio.post(
+        'http://tms.quantor-t.ru:8080/send_archive',
+        data: reqStr,
+        options: Options(headers: {'Content-Type': 'application/json'}),
+      );
+      if (response.statusCode == 200) {
+        return 200;
+      } else {
+        return response.statusCode ?? 500;
+      }
+    } catch (e) {
+      return 500;
     }
   }
 }

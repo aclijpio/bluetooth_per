@@ -1,8 +1,8 @@
-import 'package:bluetooth_per/features/web/data/repositories/main_data.dart';
-import 'package:bluetooth_per/features/web/data/source/operation.dart';
+import 'package:bluetooth_per/core/data/main_data.dart';
+import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/operations_cubit.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/operations_state.dart';
-import 'package:bluetooth_per/features/web/presentation/bloc/sending_cubit.dart';
+import 'package:bluetooth_per/common/bloc/operation_sending_cubit.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/sending_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -18,7 +18,7 @@ class OperationsListWidget extends StatefulWidget {
 class _OperationsListWidgetState extends State<OperationsListWidget> {
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<SendingCubit, SendingState>(
+    return BlocBuilder<OperationSendingCubit, SendingState>(
         builder: (context, sendState) {
       return Column(
         children: [
@@ -56,14 +56,24 @@ class _OperationsListWidgetState extends State<OperationsListWidget> {
                 if (context.read<MainData>().operations.isEmpty) {
                   return const Center(child: Text('Нет операций'));
                 }
-                List<Operation> operations = context
-                    .read<MainData>()
-                    .operations
-                    .reversed
-                    .where((op) => op.canSend)
-                    .toList();
+
+                final allOps =
+                    context.read<MainData>().operations.reversed.toList();
+                print(
+                    '[OperationsListWidget] Всего операций: ${allOps.length}');
+                for (final op in allOps) {
+                  print(
+                      '[OperationsListWidget] dt=${op.dt} canSend=${op.canSend} selected=${op.selected}');
+                }
+
+                List<Operation> operations =
+                    allOps.where((op) => op.canSend).toList();
+                print(
+                    '[OperationsListWidget] Отображается операций: ${operations.length}');
 
                 if (operations.isEmpty) {
+                  print(
+                      '[OperationsListWidget] Все операции уже синхронизированы с сервером');
                   return const Center(
                     child: Text('Все операции уже синхронизированы с сервером'),
                   );
@@ -74,26 +84,23 @@ class _OperationsListWidgetState extends State<OperationsListWidget> {
                   itemBuilder: (context, index) {
                     DateTime dtStart = DateTime.fromMillisecondsSinceEpoch(
                         operations[index].dt * 1000);
-                    return CheckboxListTile(
-                      controlAffinity: ListTileControlAffinity.leading,
-                      value: operations[index].selected,
-                      onChanged: (value) {
-                        operations[index].selected = value!;
-                        context.read<MainData>().allSelectedFlagSynchronize();
-                        context
-                            .read<OperationsCubit>()
-                            .emit(LoadedOperationsState());
-                        setState(() {});
-                      },
-                      enabled: operations[index].canSend,
-                      title: Row(
-                        children: [
-                          Expanded(
+                    print(
+                        '[OperationsListWidget] build row dt=${operations[index].dt} canSend=${operations[index].canSend} selected=${operations[index].selected}');
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
                               child: Text(DateFormat('dd.MM.yyyy HH:mm:ss')
-                                  .format(dtStart))),
-                          Expanded(child: Text(operations[index].hole)),
-                        ],
-                      ),
+                                  .format(dtStart)),
+                            ),
+                            Expanded(child: Text(operations[index].hole)),
+                            if (operations[index].checkError)
+                              const Icon(Icons.error, color: Colors.red),
+                          ],
+                        ),
+                      ],
                     );
                   },
                 );

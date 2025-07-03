@@ -1,4 +1,4 @@
-import 'package:bluetooth_per/features/web/data/source/point.dart';
+import 'package:bluetooth_per/core/data/source/point.dart';
 
 class Operation {
   int dt;
@@ -20,6 +20,8 @@ class Operation {
 
   bool selected = false;
   bool canSend = false;
+
+  bool checkError = false; // Ошибка при проверке на сервере
 
   Operation({
     required this.dt,

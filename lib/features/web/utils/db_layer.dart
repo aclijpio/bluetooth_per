@@ -1,8 +1,8 @@
 import 'dart:io' show Platform;
 
-import 'package:bluetooth_per/features/web/data/source/device_info.dart';
-import 'package:bluetooth_per/features/web/data/source/operation.dart';
-import 'package:bluetooth_per/features/web/data/source/point.dart';
+import 'package:bluetooth_per/core/data/source/device_info.dart';
+import 'package:bluetooth_per/core/data/source/operation.dart';
+import 'package:bluetooth_per/core/data/source/point.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:sqflite/sqflite.dart' as mobile;
 import 'package:sqflite/sqflite.dart';

@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import '../models/device.dart';
 import '../models/archive_entry.dart';
+import 'package:bluetooth_per/core/data/source/operation.dart';
 
 // Base class for all states.
 abstract class DeviceFlowState extends Equatable {
@@ -15,12 +16,18 @@ class InitialSearchState extends DeviceFlowState {
   const InitialSearchState();
 }
 
-// 2) Search in progress screen (showing spinner).
+class PendingArchivesState extends DeviceFlowState {
+  final List<String> dbPaths;
+  const PendingArchivesState(this.dbPaths);
+
+  @override
+  List<Object?> get props => [dbPaths];
+}
+
 class SearchingState extends DeviceFlowState {
   const SearchingState();
 }
 
-// 3) List of discovered devices. If the list has exactly one item, the cubit can skip this state.
 class DeviceListState extends DeviceFlowState {
   final List<Device> devices;
   const DeviceListState(this.devices);
@@ -29,7 +36,6 @@ class DeviceListState extends DeviceFlowState {
   List<Object?> get props => [devices];
 }
 
-// 4) Connected to device and downloading archive list.
 class ConnectedState extends DeviceFlowState {
   final Device connectedDevice;
   final List<ArchiveEntry> archives;
@@ -39,7 +45,6 @@ class ConnectedState extends DeviceFlowState {
   List<Object?> get props => [connectedDevice, archives];
 }
 
-// 5) Download in progress for a single archive.
 class DownloadingState extends DeviceFlowState {
   final Device connectedDevice;
   final ArchiveEntry entry;
@@ -47,17 +52,24 @@ class DownloadingState extends DeviceFlowState {
   /// Progress from 0.0 .. 1.0
   final double progress;
 
-  /// bytes per second or other units.
   final String speedLabel;
+
+  final int? fileSize;
+
+  final double? elapsedTime;
+
   const DownloadingState({
     required this.connectedDevice,
     required this.entry,
     required this.progress,
     required this.speedLabel,
+    this.fileSize,
+    this.elapsedTime,
   });
 
   @override
-  List<Object?> get props => [connectedDevice, entry, progress, speedLabel];
+  List<Object?> get props =>
+      [connectedDevice, entry, progress, speedLabel, fileSize, elapsedTime];
 }
 
 // 6) Table view with downloaded data (web-service like table).
@@ -65,14 +77,19 @@ class TableViewState extends DeviceFlowState {
   final Device connectedDevice;
   final ArchiveEntry entry;
   final List<TableRowData> rows;
+  final List<Operation> operations;
+  final bool isLoading;
   const TableViewState({
     required this.connectedDevice,
     required this.entry,
     required this.rows,
+    this.operations = const [],
+    this.isLoading = false,
   });
 
   @override
-  List<Object?> get props => [connectedDevice, entry, rows];
+  List<Object?> get props =>
+      [connectedDevice, entry, rows, operations, isLoading];
 }
 
 // Helper model for table rows.
@@ -101,4 +118,30 @@ class RefreshingState extends DeviceFlowState {
 
   @override
   List<Object?> get props => [connectedDevice];
+}
+
+// Экспорт в процессе
+class ExportingState extends DeviceFlowState {
+  final double progress; // 0..1
+  final ArchiveEntry entry;
+  final Device connectedDevice;
+  const ExportingState(this.progress,
+      {required this.entry, required this.connectedDevice});
+
+  @override
+  List<Object?> get props => [progress, entry, connectedDevice];
+}
+
+// Экспорт завершился успешно
+class ExportSuccessState extends DeviceFlowState {
+  const ExportSuccessState();
+}
+
+// Нет интернета – архив сохранён локально
+class NetErrorState extends DeviceFlowState {
+  final String dbPath;
+  const NetErrorState(this.dbPath);
+
+  @override
+  List<Object?> get props => [dbPath];
 }
