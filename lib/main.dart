@@ -1,22 +1,24 @@
-import 'package:bluetooth_per/features/bluetooth/presentation/bloc/unified_interface_cubit.dart';
-import 'package:bluetooth_per/features/bluetooth/presentation/screens/flow_screen.dart';
-import 'package:bluetooth_per/features/web/utils/cubit_provider_widget.dart';
-import 'package:bluetooth_per/features/web/utils/repository_provider_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'core/di/injection_container.dart' as di;
 import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
-import 'features/bluetooth/presentation/bloc/device_flow_cubit.dart';
-import 'features/bluetooth/domain/repositories/bluetooth_repository.dart';
-import 'core/data/main_data.dart';
-import 'core/utils/archive_sync_manager.dart';
-import 'package:bluetooth_per/common/widgets/app_header.dart';
+import 'shared/shared.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _requestPermissions();
   await di.init();
   runApp(const MyApp());
+}
+
+Future<void> _requestPermissions() async {
+  await Permission.storage.request();
+  await Permission.manageExternalStorage.request();
+  await Permission.bluetoothScan.request();
+  await Permission.bluetooth.request();
+  await Permission.bluetoothConnect.request();
 }
 
 class MyApp extends StatelessWidget {
@@ -26,11 +28,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Quantor Data Transfer',
-
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.lightTheme,
       home: const HomePage(),
     );
   }
@@ -41,34 +39,20 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RepositoryProviderWidget(
-      child: CubitProviderWidget(
-        child: MultiBlocProvider(
-          providers: [
-            BlocProvider(
-              create: (context) => di.sl<BluetoothBloc>(),
-            ),
-            BlocProvider(
-              create: (context) => UnifiedInterfaceCubit(),
-            ),
-            BlocProvider(
-              create: (_) => DeviceFlowCubit(
-                di.sl<BluetoothRepository>(),
-                di.sl<MainData>(),
-              ),
-            ),
-          ],
-          child: const Scaffold(
-            extendBodyBehindAppBar: true,
-            backgroundColor: Colors.white,
-            body: Column(
-              children: [
-                SafeArea(child: AppHeader()),
-                Expanded(child: DeviceFlowScreen()),
-              ],
-            ),
+    return BlocProvider(
+      create: (context) => di.sl<BluetoothBloc>(),
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.bluetooth),
+              SizedBox(width: 12),
+              Text('Quantor'),
+            ],
           ),
         ),
+        body: const MainScreen(),
       ),
     );
   }

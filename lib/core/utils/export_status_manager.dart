@@ -1,12 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import '../../common/config.dart';
 
 class ExportStatusManager {
   static Future<File> _getStatusFile() async {
-    // Путь к папке с архивами (замените на ваш путь, если нужно)
-    final dir = Directory('/storage/emulated/0/Download/quan');
-    return File(p.join(dir.path, 'export_status.json'));
+    final downloadsDir = await getDownloadsDirectory();
+    final archiveDir =
+        Directory(p.join(downloadsDir!.path, AppConfig.archivesDirName));
+    if (!await archiveDir.exists()) {
+      await archiveDir.create(recursive: true);
+    }
+    return File(p.join(archiveDir.path, 'export_status.json'));
   }
 
   static Future<Map<String, dynamic>> _readStatus() async {

@@ -62,53 +62,62 @@ class DbLayer {
   }
 
   static Future<List<Operation>> getOperationList(Database db) async {
-    try {
-      final res = await db.query('tmc_operations', columns: [
-        'DT',
-        'max_pressure',
-        'Organization',
-        'work_type',
-        'NGDU',
-        'Field',
-        'Department',
-        'Cluster',
-        'Hole',
-        'brigade',
-        'lat',
-        'lon',
-        'equipment'
-      ]);
+    var res = await db.query('tmc_operations', columns: [
+      'DT',
+      'max_pressure',
+      'Organization',
+      'work_type',
+      'NGDU',
+      'Field',
+      'Department',
+      'Cluster',
+      'Hole',
+      'brigade',
+      'lat',
+      'lon',
+      'equipment'
+    ]);
+    if (res.isEmpty) {
+      return [];
+    } else {
       return res.map((e) => Operation.fromMap(e)).toList();
-    } catch (e) {
-      throw Exception('Failed to get operation list: $e');
     }
   }
 
   static Future<List<Point>> getOperationPoints(
       Database db, int dt1, int dt2) async {
-    try {
-      final res = await db.query(
-        'tmc_points',
-        columns: ['date', 'point', 'lat', 'lon', 'speed'],
-        where: 'date > ? and date < ?',
-        whereArgs: [dt1, dt2],
-      );
-
-      final resultList = <Point>[];
-      final uniqueDates = <int>{};
-
-      for (final e in res) {
-        final point = Point.fromMap(e);
-        if (!uniqueDates.contains(point.dt)) {
-          uniqueDates.add(point.dt);
+    var res = await db.query(
+      'tmc_points',
+      columns: ['date', 'point', 'lat', 'lon', 'speed'],
+      where: 'date > ? and date < ?',
+      whereArgs: [dt1, dt2],
+    );
+    if (res.isEmpty) {
+      return [];
+    } else {
+      List<Point> resultList = [];
+      Set<int> seenDt = {};
+      for (var e in res) {
+        Point point = Point.fromMap(e);
+        // проверка на повторную точку в базе через Set
+        if (seenDt.add(point.dt)) {
           resultList.add(point);
         }
       }
-
       return resultList;
-    } catch (e) {
-      throw Exception('Failed to get operation points: $e');
+      //return res.map((e) => Point.fromMap(e)).toList();
     }
+  }
+
+  static Future<int> getOperationPointsLength(
+      Database db, int dt1, int dt2) async {
+    var res = await db.query(
+      'tmc_points',
+      columns: ['date', 'point', 'lat', 'lon', 'speed'],
+      where: 'date > ? and date < ?',
+      whereArgs: [dt1, dt2],
+    );
+    return res.length;
   }
 
   static Future<void> closeDb() async {

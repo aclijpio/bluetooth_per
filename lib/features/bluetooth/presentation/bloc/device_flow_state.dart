@@ -28,6 +28,14 @@ class SearchingState extends DeviceFlowState {
   const SearchingState();
 }
 
+class SearchingStateWithDevices extends DeviceFlowState {
+  final List<Device> devices;
+  const SearchingStateWithDevices(this.devices);
+
+  @override
+  List<Object?> get props => [devices];
+}
+
 class DeviceListState extends DeviceFlowState {
   final List<Device> devices;
   const DeviceListState(this.devices);
@@ -76,20 +84,22 @@ class DownloadingState extends DeviceFlowState {
 class TableViewState extends DeviceFlowState {
   final Device connectedDevice;
   final ArchiveEntry entry;
-  final List<TableRowData> rows;
+  final List<dynamic> rows;
   final List<Operation> operations;
   final bool isLoading;
+  final bool disabled;
   const TableViewState({
     required this.connectedDevice,
     required this.entry,
     required this.rows,
-    this.operations = const [],
+    required this.operations,
     this.isLoading = false,
+    this.disabled = false,
   });
 
   @override
   List<Object?> get props =>
-      [connectedDevice, entry, rows, operations, isLoading];
+      [connectedDevice, entry, rows, operations, isLoading, disabled];
 }
 
 // Helper model for table rows.
@@ -135,6 +145,15 @@ class ExportingState extends DeviceFlowState {
 // Экспорт завершился успешно
 class ExportSuccessState extends DeviceFlowState {
   const ExportSuccessState();
+}
+
+// Ошибка базы данных
+class DbErrorState extends DeviceFlowState {
+  final String message;
+  const DbErrorState(this.message);
+
+  @override
+  List<Object?> get props => [message];
 }
 
 // Нет интернета – архив сохранён локально

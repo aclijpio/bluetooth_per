@@ -3,55 +3,50 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import '../../common/config.dart';
+import 'package:external_path/external_path.dart';
+import 'package:flutter/foundation.dart';
 
 class ArchiveSyncManager {
   ArchiveSyncManager._();
 
-  static Future<List<String>> getPending() async {
-    Directory downloadDir;
-    try {
-      final extDir = await getExternalStorageDirectory();
-      if (extDir != null) {
-        // Для пути вида "/storage/emulated/0/Android/data/..." берём часть до
-        // "Android" и добавляем "Download/quan".
-        final rootPath = extDir.path.split('Android').first;
-        downloadDir = Directory(p.join(rootPath, 'Download', 'quan'));
-      } else {
-        // Fallback на стандартный путь
-        downloadDir = Directory('/storage/emulated/0/Download/quan');
-      }
-    } catch (_) {
-      downloadDir = Directory('/storage/emulated/0/Download/quan');
+  static Future<Directory> getArchivesDirectory() async {
+    String basePath = "/storage/emulated/0/Download";
+    final archiveDir = Directory(p.join(basePath, AppConfig.archivesDirName));
+    if (!await archiveDir.exists()) {
+      await archiveDir.create(recursive: true);
     }
-    print('[ArchiveSyncManager] getPending: dir=${downloadDir.path}');
-    if (!await downloadDir.exists()) {
-      print('[ArchiveSyncManager] getPending: downloadDir does not exist');
+    return archiveDir;
+  }
+  static Future<List<String>> getPending() async {
+    final archiveDir = await getArchivesDirectory();
+    if (!await archiveDir.exists()) {
+      print('[ArchiveSyncManager] getPending: archiveDir не найден');
       return [];
     }
-    final files = await downloadDir.list().toList();
+    final files = await archiveDir.list().toList();
     final pending = files
-        .where((f) => f is File && f.path.endsWith('.db.pending'))
+        .where((f) =>
+            f is File &&
+            f.path
+                .endsWith(AppConfig.notExportedSuffix + AppConfig.dbExtension))
         .map((f) => f.path)
         .toList();
-    print(
-        '[ArchiveSyncManager] getPending: found ${pending.length} pending files');
     return pending;
   }
 
   static Future<void> addPending(String path) async {
-    print('[ArchiveSyncManager] addPending: $path');
-    final list = await getPending();
-    print(
-        '[ArchiveSyncManager] addPending: updated pending list, total=${list.length}');
+    await getPending();
   }
 
   static Future<void> markExported(String pendingPath) async {
-    print('[ArchiveSyncManager] markExported: $pendingPath');
-    if (!pendingPath.endsWith('.pending')) {
-      print('[ArchiveSyncManager] markExported: not a .pending file, skipping');
+    if (!pendingPath
+        .endsWith(AppConfig.notExportedSuffix + AppConfig.dbExtension)) {
       return;
     }
-    final exportedPath = pendingPath.replaceAll('.db.pending', '.db');
+    final exportedPath = pendingPath.replaceAll(
+        AppConfig.notExportedSuffix + AppConfig.dbExtension,
+        AppConfig.dbExtension);
     final file = File(pendingPath);
     if (await file.exists()) {
       await file.rename(exportedPath);
@@ -62,7 +57,10 @@ class ArchiveSyncManager {
   }
 
   static String getDisplayName(String path) {
-    final file = p.basename(path).replaceAll('.pending', '');
+    final file = p
+        .basename(path)
+        .replaceAll(AppConfig.notExportedSuffix + AppConfig.dbExtension, '')
+        .replaceAll(AppConfig.dbExtension, '');
     final match = RegExp(r'^([^_]+)_(.+)$').firstMatch(file);
     final display = match != null ? match.group(1)! : file;
     print('[ArchiveSyncManager] getDisplayName: path=$path display=$display');
@@ -72,9 +70,13 @@ class ArchiveSyncManager {
 
 class ExportStatusManager {
   static Future<File> _getStatusFile() async {
-    // Путь к папке с архивами (замените на ваш путь, если нужно)
-    final dir = Directory('/storage/emulated/0/Download/quan');
-    return File(p.join(dir.path, 'export_status.json'));
+    final downloadsDir = await getDownloadsDirectory();
+    final archiveDir =
+        Directory(p.join(downloadsDir!.path, AppConfig.archivesDirName));
+    if (!await archiveDir.exists()) {
+      await archiveDir.create(recursive: true);
+    }
+    return File(p.join(archiveDir.path, 'export_status.json'));
   }
 
   static Future<Map<String, dynamic>> _readStatus() async {
@@ -91,13 +93,11 @@ class ExportStatusManager {
     await file.writeAsString(jsonEncode(data), flush: true);
   }
 
-  // Получить статус архива
   static Future<Map<String, dynamic>?> getArchiveStatus(String fileName) async {
     final data = await _readStatus();
     return data[fileName] as Map<String, dynamic>?;
   }
 
-  // Обновить статус архива
   static Future<void> setArchiveStatus(
       String fileName, String status, List<int> exportedOps) async {
     final data = await _readStatus();
@@ -108,7 +108,6 @@ class ExportStatusManager {
     await _writeStatus(data);
   }
 
-  // Добавить экспортированную операцию
   static Future<void> addExportedOp(String fileName, int opDt) async {
     final data = await _readStatus();
     final entry = data[fileName] as Map<String, dynamic>? ??

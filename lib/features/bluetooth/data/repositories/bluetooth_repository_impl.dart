@@ -15,6 +15,7 @@ import '../../domain/repositories/bluetooth_repository.dart';
 import '../protocol/bluetooth_protocol.dart';
 import '../transport/bluetooth_transport.dart';
 import '../../../../core/utils/archive_sync_manager.dart';
+import '../../../../common/config.dart';
 
 class BluetoothRepositoryImpl implements BluetoothRepository {
   final FlutterBlueClassic _flutterBlueClassic;
@@ -37,10 +38,12 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   BluetoothRepositoryImpl(this._transport, this._flutterBlueClassic);
 
   @override
-  Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices() async {
+  Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices(
+      {void Function(BluetoothDeviceEntity)? onDeviceFound}) async {
     try {
-      const int maxAttempts = 4; // всего до ~20 секунд сканирования
-      const Duration attemptDuration = Duration(seconds: 5);
+      const int maxAttempts = 1;
+      const Duration attemptDuration = Duration(seconds: 50);
+      // 10 * 5 = 50 секунд максимум
 
       final found = <BluetoothDeviceEntity>[];
 
@@ -57,6 +60,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           // сохраняем новое устройство
           if (!found.any((e) => e.address == d.address)) {
             found.add(BluetoothDeviceEntity(address: d.address, name: d.name));
+            if (onDeviceFound != null) {
+              onDeviceFound(
+                  BluetoothDeviceEntity(address: d.address, name: d.name));
+            }
           }
 
           // как только нашли хотя бы одно, завершаем попытку досрочно
@@ -90,44 +97,62 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
   Future<BluetoothConnection> _connectToDevice(
       BluetoothDeviceEntity device) async {
-    print('Connecting to device: ${device.address}');
+    print('Connecting to device: [36m${device.address}[0m');
     BluetoothConnection? connection;
     int attempts = 0;
     const maxAttempts = 10;
     // Несколько попыток подключения
-    while (attempts < maxAttempts) {
-      try {
-        connection = await _flutterBlueClassic.connect(device.address);
-
-        if (connection == null) {
+    final completer = Completer<BluetoothConnection?>();
+    Timer? timeoutTimer;
+    bool finished = false;
+    timeoutTimer = Timer(const Duration(seconds: 15), () {
+      if (!finished) {
+        finished = true;
+        completer.completeError(TimeoutException('Connection timeout'));
+      }
+    });
+    () async {
+      while (attempts < maxAttempts && !finished) {
+        try {
+          connection = await _flutterBlueClassic.connect(device.address);
+          if (connection == null) {
+            attempts++;
+            await Future.delayed(const Duration(milliseconds: 500));
+            continue;
+          }
+          int waitAttempts = 0;
+          while (!(connection?.isConnected ?? false) && waitAttempts < 3) {
+            await Future.delayed(const Duration(milliseconds: 100));
+            waitAttempts++;
+          }
+          if (!(connection?.isConnected ?? false)) {
+            attempts++;
+            await Future.delayed(const Duration(milliseconds: 500));
+            continue;
+          }
+          if (!finished && connection != null) {
+            finished = true;
+            timeoutTimer?.cancel();
+            completer.complete(connection);
+          }
+          return;
+        } catch (e) {
           attempts++;
-          await Future.delayed(const Duration(milliseconds: 500));
-          continue;
-        }
-
-        int waitAttempts = 0;
-        while (!connection.isConnected && waitAttempts < 3) {
-          await Future.delayed(const Duration(milliseconds: 100));
-          waitAttempts++;
-        }
-
-        if (!connection.isConnected) {
-          attempts++;
-          await Future.delayed(const Duration(milliseconds: 500));
-          continue;
-        }
-
-        return connection;
-      } catch (e) {
-        attempts++;
-        if (attempts < maxAttempts) {
-          await Future.delayed(const Duration(milliseconds: 500));
+          if (attempts < maxAttempts) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
         }
       }
-    }
-
-    throw Exception(
-        'Failed to establish connection after $maxAttempts attempts');
+      if (!finished) {
+        finished = true;
+        timeoutTimer?.cancel();
+        completer.completeError(Exception(
+            'Failed to establish connection after $maxAttempts attempts'));
+      }
+    }();
+    final result = await completer.future;
+    if (result == null) throw Exception('Connection is null');
+    return result;
   }
 
   @override
@@ -244,24 +269,9 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       final directory = await getApplicationDocumentsDirectory();
 
       // ----------------- Выбираем целевую директорию -----------------
-      // Пытаемся сохранить в общий каталог Download/quan во внешнем хранилище.
-      Directory downloadDir;
-      try {
-        final extDir = await getExternalStorageDirectory();
-        if (extDir != null) {
-          // Для пути вида "/storage/emulated/0/Android/data/..." берём часть до
-          // "Android" и добавляем "Download/quan".
-          final rootPath = extDir.path.split('Android').first;
-          downloadDir = Directory(p.join(rootPath, 'Download', 'quan'));
-        } else {
-          // Fallback на стандартный путь
-          downloadDir = Directory('/storage/emulated/0/Download/quan');
-        }
-      } catch (_) {
-        downloadDir = Directory('/storage/emulated/0/Download/quan');
-      }
-
-      if (!(await downloadDir.exists())) {
+      // Используем только ArchiveSyncManager.getArchivesDirectory для совместимости с внешней памятью
+      final downloadDir = await ArchiveSyncManager.getArchivesDirectory();
+      if (!await downloadDir.exists()) {
         await downloadDir.create(recursive: true);
       }
 
@@ -279,34 +289,62 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       // Формируем итоговое имя файла: <deviceName>_<fileName>.db.pending (без .gz)
       String baseName = sanitizedFileName.replaceAll(
           RegExp(r'\.gze?$', caseSensitive: false), '');
-      if (!baseName.endsWith('.db')) baseName = '$baseName.db';
-      final finalFileName = deviceName.isNotEmpty
-          ? '${deviceName}_$baseName.pending'
-          : '$baseName.pending';
+      if (!baseName.endsWith(AppConfig.dbExtension))
+        baseName = '$baseName${AppConfig.dbExtension}';
+      final finalFileName = AppConfig.notExportedFileName(
+          deviceName, baseName.replaceAll(AppConfig.dbExtension, ''));
 
-      // Сначала сохраняем во временный файл внутри internal storage, затем
-      // перенесём. Это гарантирует, что у нас есть права на запись.
-      final tempFile = File(p.join(directory.path, sanitizedFileName));
-      await tempFile.parent.create(recursive: true);
-
-      print('Will save temporary file to: ${tempFile.path}');
-
-      bool isDbFile = fileName.toLowerCase().endsWith('.db') ||
-          fileName.toLowerCase().endsWith('.db.gz');
-
-      final sink = tempFile.openWrite();
-      bool sinkClosed = false;
-      print('File sink opened');
-
-      // Reuse уже открытое соединение, если оно есть
-      BluetoothConnection? connection = _connection;
-      int retryCount = 0;
-      const maxRetries = 3;
+      // --- Гибридная буферизация: память + файл ---
+      const int memoryLimit = 124 * 1024 * 1024; // 124 МБ
+      BytesBuilder memoryBuffer = BytesBuilder();
+      bool switchedToFile = false;
+      File? tempFile;
+      IOSink? sink;
       int receivedBytes = 0;
       int expectedFileSize = 0;
       bool isReadingFileData = false;
       List<int> responseBuffer = [];
       List<int> allReceivedData = [];
+      Future<void> flushSink() async {
+        if (sink != null) {
+          await sink!.flush();
+        }
+      }
+
+      Future<void> closeSink() async {
+        if (sink != null) {
+          await sink!.flush();
+          await sink!.close();
+          sink = null;
+        }
+      }
+
+      Future<void> addToBufferOrFile(List<int> data) async {
+        receivedBytes += data.length;
+        allReceivedData.addAll(data);
+        if (!switchedToFile) {
+          memoryBuffer.add(data);
+          if (memoryBuffer.length >= memoryLimit) {
+            // Переключаемся на файл
+            tempFile = File(p.join(directory.path, sanitizedFileName));
+            sink = tempFile!.openWrite();
+            sink!.add(memoryBuffer.takeBytes());
+            switchedToFile = true;
+          }
+        } else {
+          sink!.add(data);
+        }
+        if (expectedFileSize > 0) {
+          final progress = receivedBytes / expectedFileSize;
+          onProgress?.call(progress, expectedFileSize);
+        }
+      }
+      // --- конец гибридной буферизации ---
+
+      // Reuse уже открытое соединение, если оно есть
+      BluetoothConnection? connection = _connection;
+      int retryCount = 0;
+      const maxRetries = 3;
 
       while (retryCount < maxRetries && !_isCancelled) {
         try {
@@ -329,125 +367,114 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           _downloadSubscription = connection.input?.listen(
             (data) async {
               if (_isCancelled) {
-                print('Download cancelled');
-                if (!sinkClosed) {
-                  await sink.flush();
-                  await sink.close();
-                  sinkClosed = true;
-                }
+                await flushSink();
+                await closeSink();
                 responseCompleter.complete(false);
                 return;
               }
 
-              print('Received data chunk: ${data.length} bytes');
-
               if (!isReadingFileData) {
-                // Собираем первые 8 байт – размер файла
                 responseBuffer.addAll(data);
-
                 if (responseBuffer.length >= 8) {
                   final sizeBytes =
                       Uint8List.fromList(responseBuffer.sublist(0, 8));
                   expectedFileSize =
                       ByteData.view(sizeBytes.buffer).getInt64(0, Endian.big);
-                  print('File size received: $expectedFileSize');
-
                   final remaining = responseBuffer.sublist(8);
                   responseBuffer.clear();
                   isReadingFileData = true;
-
-                  if (remaining.isNotEmpty && !sinkClosed) {
-                    try {
-                      sink.add(remaining);
-                    } catch (_) {}
-                    receivedBytes += remaining.length;
-                    allReceivedData.addAll(remaining);
-                  }
-
-                  if (expectedFileSize > 0) {
-                    final progress = receivedBytes / expectedFileSize;
-                    onProgress?.call(progress, expectedFileSize);
-                  }
+                  if (remaining.isNotEmpty) await addToBufferOrFile(remaining);
                 }
               } else {
-                if (!sinkClosed) {
-                  try {
-                    sink.add(data);
-                  } catch (_) {}
-                }
-                receivedBytes += data.length;
-                allReceivedData.addAll(data);
+                await addToBufferOrFile(data);
+              }
 
-                if (expectedFileSize > 0) {
-                  final progress = receivedBytes / expectedFileSize;
-                  onProgress?.call(progress, expectedFileSize);
-                  if (receivedBytes >= expectedFileSize) {
-                    print('File download completed successfully');
-
-                    print('Всего bytes received: ${allReceivedData.length}');
-                    print('Размер файла: $expectedFileSize');
-                    print(
-                        'Первые 20 numbers: ${allReceivedData.take(20).map((b) => b & 0xFF).join(', ')}');
-                    print(
-                        'Последнии 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
-
-                    if (!sinkClosed) {
-                      await sink.flush();
-                      await sink.close();
-                      sinkClosed = true;
+              if (expectedFileSize > 0 && receivedBytes >= expectedFileSize) {
+                await flushSink();
+                await closeSink();
+                print('File download completed successfully');
+                print('Всего bytes received: ${allReceivedData.length}');
+                print('Размер файла: $expectedFileSize');
+                print(
+                    'Первые 20 numbers: ${allReceivedData.take(20).map((b) => b & 0xFF).join(', ')}');
+                print(
+                    'Последнии 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
+                // -------- Сохраняем в <documents>/download/quan --------
+                String finalPath;
+                if (!switchedToFile) {
+                  // Всё в памяти
+                  final bytes = memoryBuffer.takeBytes();
+                  if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
+                    try {
+                      final rawFile =
+                          File(p.join(downloadDir.path, finalFileName));
+                      await rawFile.writeAsBytes(gzip.decode(bytes));
+                      finalPath = rawFile.path;
+                      await ArchiveSyncManager.addPending(finalPath);
+                    } catch (e) {
+                      print('Error while decompressing: $e');
+                      finalPath =
+                          p.join(directory.path, sanitizedFileName); // fallback
+                      await File(finalPath).writeAsBytes(bytes);
                     }
-
-                    // -------- Сохраняем в <documents>/download/quan --------
-                    String finalPath;
-
-                    if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
+                  } else {
+                    final destPath = p.join(downloadDir.path, finalFileName);
+                    await File(destPath).writeAsBytes(bytes);
+                    finalPath = destPath;
+                    await ArchiveSyncManager.addPending(finalPath);
+                  }
+                  onComplete?.call(finalPath);
+                  if (!responseCompleter.isCompleted) {
+                    responseCompleter.complete(true);
+                  }
+                } else {
+                  // Данные были сброшены в файл
+                  if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
+                    try {
+                      final rawFile =
+                          File(p.join(downloadDir.path, finalFileName));
+                      await tempFile!
+                          .openRead()
+                          .transform(gzip.decoder)
+                          .pipe(rawFile.openWrite());
+                      finalPath = rawFile.path;
+                      await tempFile!.delete();
+                      await ArchiveSyncManager.addPending(finalPath);
+                    } catch (e) {
+                      print('Error while decompressing: $e');
+                      finalPath = tempFile!.path; // fallback
+                    }
+                  } else {
+                    final destPath = p.join(downloadDir.path, finalFileName);
+                    bool moved = false;
+                    try {
+                      await tempFile!.rename(destPath);
+                      moved = true;
+                      await ArchiveSyncManager.addPending(destPath);
+                    } catch (_) {
                       try {
-                        final rawFile =
-                            File(p.join(downloadDir.path, finalFileName));
-                        await tempFile
-                            .openRead()
-                            .transform(gzip.decoder)
-                            .pipe(rawFile.openWrite());
-                        finalPath = rawFile.path;
-                        await tempFile.delete();
-                        await ArchiveSyncManager.addPending(finalPath);
-                      } catch (e) {
-                        print('Error while decompressing: $e');
-                        finalPath = tempFile.path; // fallback
-                      }
-                    } else {
-                      // Просто переносим файл в download/quan
-                      final destPath = p.join(downloadDir.path, finalFileName);
-                      bool moved = false;
-                      try {
-                        await tempFile.rename(destPath);
+                        await tempFile!.copy(destPath);
+                        await tempFile!.delete();
                         moved = true;
                         await ArchiveSyncManager.addPending(destPath);
-                      } catch (_) {
-                        try {
-                          await tempFile.copy(destPath);
-                          await tempFile.delete();
-                          moved = true;
-                          await ArchiveSyncManager.addPending(destPath);
-                        } catch (e) {
-                          print('Cannot move file to downloads: $e');
-                        }
+                      } catch (e) {
+                        print('Cannot move file to downloads: $e');
                       }
-                      finalPath = moved ? destPath : tempFile.path;
-                      await ArchiveSyncManager.addPending(finalPath);
                     }
-
-                    onComplete?.call(finalPath);
-
-                    if (!responseCompleter.isCompleted) {
-                      responseCompleter.complete(true);
-                    }
+                    finalPath = moved ? destPath : tempFile!.path;
+                    await ArchiveSyncManager.addPending(finalPath);
+                  }
+                  onComplete?.call(finalPath);
+                  if (!responseCompleter.isCompleted) {
+                    responseCompleter.complete(true);
                   }
                 }
               }
             },
-            onError: (error) {
+            onError: (error) async {
               print('Error during file download: $error');
+              await flushSink();
+              await closeSink();
               if (!responseCompleter.isCompleted) {
                 responseCompleter.completeError(error);
               }
@@ -455,71 +482,16 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
             onDone: () async {
               print(
                   'Connection closed, received $receivedBytes of $expectedFileSize bytes');
+              await flushSink();
+              await closeSink();
               if (receivedBytes < expectedFileSize && !_isCancelled) {
                 print(
                     'Connection closed before download completed, will retry');
                 if (!responseCompleter.isCompleted) {
                   responseCompleter.complete(false);
                 }
-              } else {
-                print('\nDownload Summary:');
-                print('Total bytes received: ${allReceivedData.length}');
-                print('Expected file size: $expectedFileSize');
-                print(
-                    'First 20 numbers: ${allReceivedData.take(20).map((b) => b & 0xFF).join(', ')}');
-                print(
-                    'Last 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
-
-                if (!sinkClosed) {
-                  await sink.flush();
-                  await sink.close();
-                  sinkClosed = true;
-                }
-
-                // -------- Перемещаем/распаковываем в download/quan (onDone) --------
-                String finalPath;
-
-                if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
-                  try {
-                    final rawFile =
-                        File(p.join(downloadDir.path, finalFileName));
-                    await tempFile
-                        .openRead()
-                        .transform(gzip.decoder)
-                        .pipe(rawFile.openWrite());
-                    finalPath = rawFile.path;
-                    await tempFile.delete();
-                    await ArchiveSyncManager.addPending(finalPath);
-                  } catch (e) {
-                    print('Error while decompressing (onDone): $e');
-                    finalPath = tempFile.path;
-                  }
-                } else {
-                  final destPath = p.join(downloadDir.path, finalFileName);
-                  bool moved = false;
-                  try {
-                    await tempFile.rename(destPath);
-                    moved = true;
-                    await ArchiveSyncManager.addPending(destPath);
-                  } catch (_) {
-                    try {
-                      await tempFile.copy(destPath);
-                      await tempFile.delete();
-                      moved = true;
-                      await ArchiveSyncManager.addPending(destPath);
-                    } catch (e) {
-                      print('Cannot move file to downloads (onDone): $e');
-                    }
-                  }
-                  finalPath = moved ? destPath : tempFile.path;
-                  await ArchiveSyncManager.addPending(finalPath);
-                }
-
-                onComplete?.call(finalPath);
-
-                if (!responseCompleter.isCompleted) {
-                  responseCompleter.complete(true);
-                }
+              } else if (!responseCompleter.isCompleted) {
+                responseCompleter.complete(true);
               }
             },
           );
@@ -529,7 +501,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           if (response || _isCancelled) {
             if (_isCancelled) {
               print('Download cancelled successfully');
-              await tempFile.delete();
+              await tempFile?.delete();
               return const Right(true);
             }
             print('File download completed successfully');
@@ -556,7 +528,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       }
 
       if (_isCancelled) {
-        await tempFile.delete();
+        await tempFile?.delete();
         return const Right(true);
       }
       return Left(FileOperationFailure(
@@ -654,5 +626,12 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       await controller.close();
     });
     return controller.stream;
+  }
+
+  @override
+  void cancelScan() {
+    _isCancelled = true;
+    _flutterBlueClassic.stopScan();
+    _scanSubscription?.cancel();
   }
 }

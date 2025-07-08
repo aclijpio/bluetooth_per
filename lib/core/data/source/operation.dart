@@ -20,8 +20,12 @@ class Operation {
 
   bool selected = false;
   bool canSend = false;
-
   bool checkError = false; // Ошибка при проверке на сервере
+  bool exported = false; // Успешно экспортирована
+  bool unavailable =
+      false; // Недоступна для экспорта (нет связи, ошибка и т.д.)
+
+  int errorCode = 0; // Код ошибки экспорта, если есть
 
   Operation({
     required this.dt,

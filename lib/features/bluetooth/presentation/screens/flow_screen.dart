@@ -6,13 +6,9 @@ import 'dart:io';
 
 import '../bloc/device_flow_cubit.dart';
 import '../bloc/device_flow_state.dart';
-import '../widgets/primary_button.dart';
 import '../widgets/device_tile.dart';
 import '../widgets/archive_table.dart';
-import '../widgets/progress_bar.dart';
 import '../models/device.dart';
-import 'package:bluetooth_per/core/di/injection_container.dart' as di;
-import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import 'package:bluetooth_per/core/data/main_data.dart';
 import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
 import '../models/archive_entry.dart';
@@ -20,15 +16,27 @@ import 'package:bluetooth_per/common/bloc/operation_sending_cubit.dart';
 import 'package:bluetooth_per/features/web/presentation/bloc/sending_state.dart';
 import 'package:bluetooth_per/common/widgets/primary_button.dart';
 import 'package:bluetooth_per/common/widgets/progress_bar.dart';
+import '../bloc/export_progress_cubit.dart';
+import 'package:bluetooth_per/common/widgets/app_header.dart';
 
-class DeviceFlowScreen extends StatefulWidget {
-  const DeviceFlowScreen({super.key});
-
+class DeviceFlowScreen extends StatelessWidget {
   @override
-  State<DeviceFlowScreen> createState() => _DeviceFlowScreenState();
+  Widget build(BuildContext context) {
+    return BlocProvider<ExportProgressCubit>(
+      create: (_) => ExportProgressCubit(),
+      child: const DeviceFlowScreenBody(),
+    );
+  }
 }
 
-class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
+class DeviceFlowScreenBody extends StatefulWidget {
+  const DeviceFlowScreenBody({super.key});
+
+  @override
+  State<DeviceFlowScreenBody> createState() => _DeviceFlowScreenBodyState();
+}
+
+class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
   bool _hasTableSelection = false;
   bool _exportDialogShown = false;
   String? _exportError;
@@ -49,6 +57,13 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
           );
           _exportError = null;
         }
+        if (state is ExportSuccessState) {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) {
+              context.read<ExportProgressCubit>().reset();
+            }
+          });
+        }
       },
       child: BlocProvider<OperationSendingCubit>(
         create: (ctx) => OperationSendingCubit(context.read<MainData>()),
@@ -62,8 +77,24 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Header
-                    if (state is SearchingState || state is DeviceListState)
+                    if (state is DeviceListState ||
+                        state is ConnectedState ||
+                        state is TableViewState ||
+                        state is ExportProgressState ||
+                        state is SearchingStateWithDevices)
+                      MainMenuButton(
+                        onPressed: () {
+                          context.read<DeviceFlowCubit>().reset();
+                        },
+                        isBlocked:
+                            (state is TableViewState && state.isLoading) ||
+                                state is ExportingState ||
+                                state is UploadingState ||
+                                state is RefreshingState ||
+                                state is DownloadingState ||
+                                state is SearchingStateWithDevices,
+                      ),
+                    if (state is SearchingState || state is DeviceListState || state is SearchingStateWithDevices)
                       const Text(
                         'Устройства',
                         style: TextStyle(
@@ -121,6 +152,8 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
       return const SizedBox.shrink();
     } else if (state is SearchingState) {
       return _SearchingBody();
+    } else if (state is SearchingStateWithDevices) {
+      return _DeviceListBody(devices: state.devices);
     } else if (state is DeviceListState) {
       return _DeviceListBody(devices: state.devices);
     } else if (state is ConnectedState) {
@@ -143,52 +176,45 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
           state is TableViewState
               ? state.entry.fileName
               : (state as ExportingState).entry.fileName);
-      final operations = (state is TableViewState)
-          ? state.operations.where((op) => op.canSend || op.checkError).toList()
-          : mainData.operations
-              .where((op) => op.canSend || op.checkError)
-              .toList();
+      final operations =
+          (state is TableViewState) ? state.operations : mainData.operations;
+      final bool checkboxesEnabled =
+          state is TableViewState && !(state).disabled;
+
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () {
-                context.read<DeviceFlowCubit>().reset();
-              },
-              icon: const Icon(Icons.arrow_back),
-              label: const Text('В главое меню'),
-              style: TextButton.styleFrom(
-                foregroundColor: Color(0xFF0B78CC),
-                textStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
           Expanded(
-            child: state is TableViewState && state.isLoading
-                ? Center(
-                    child: SizedBox(
-                      width: 80,
-                      height: 80,
-                      child: CircularProgressIndicator(strokeWidth: 7),
-                    ),
-                  )
-                : ArchiveTable(
-                    entry: ArchiveEntry(
-                      fileName: displayName,
-                      sizeBytes: state is TableViewState
-                          ? state.entry.sizeBytes
-                          : (state as ExportingState).entry.sizeBytes,
-                    ),
-                    operations: operations,
-                    onSelectionChanged: (selected) {
-                      setState(() {
-                        _hasTableSelection = selected;
-                      });
-                    },
+            child: Stack(
+              children: [
+                ArchiveTable(
+                  entry: ArchiveEntry(
+                    fileName: displayName,
+                    sizeBytes: state is TableViewState
+                        ? state.entry.sizeBytes
+                        : (state as ExportingState).entry.sizeBytes,
                   ),
+                  operations: operations,
+                  onSelectionChanged: (selected) {
+                    setState(() {
+                      _hasTableSelection = selected;
+                    });
+                  },
+                  checkboxesEnabled: checkboxesEnabled,
+                ),
+                if (state is TableViewState && state.isLoading)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 100),
+                    child: Center(
+                      child: SizedBox(
+                        width: 80,
+                        height: 80,
+                        child: CircularProgressIndicator(strokeWidth: 7),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       );
@@ -198,23 +224,50 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
       // Убираем ExportSuccessState, всегда показываем таблицу
       return const SizedBox.shrink();
     } else if (state is NetErrorState) {
+      final mainData = context.read<MainData>();
+      final displayName = ArchiveSyncManager.getDisplayName(state.dbPath);
+      final operations = mainData.operations;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                ArchiveTable(
+                  entry: ArchiveEntry(
+                    fileName: displayName,
+                    sizeBytes: 0,
+                  ),
+                  operations: operations,
+                  onSelectionChanged: (selected) {
+                    setState(() {
+                      _hasTableSelection = selected;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    } else if (state is DbErrorState) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.cloud_off, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
+            Icon(Icons.error_outline, color: Colors.red, size: 48),
+            const SizedBox(height: 16),
             Text(
-              'Не удалось синхронизировать операции с сервером.\nПроверьте подключение к интернету.',
+              state.message,
+              style: const TextStyle(color: Colors.red, fontSize: 18),
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18),
             ),
-            SizedBox(height: 24),
+            const SizedBox(height: 24),
             ElevatedButton(
               onPressed: () {
-                context.read<DeviceFlowCubit>().loadLocalArchive(state.dbPath);
+                context.read<DeviceFlowCubit>().reset();
               },
-              child: Text('Повторить'),
+              child: const Text('Назад'),
             ),
           ],
         ),
@@ -224,6 +277,7 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
   }
 
   Widget _buildBottomButton(DeviceFlowState state, DeviceFlowCubit cubit) {
+    final exportProgressCubit = context.read<ExportProgressCubit>();
     if (state is InitialSearchState) {
       return PrimaryButton(
         label: 'Поиск устройств',
@@ -235,6 +289,21 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
         onPressed: null,
         enabled: false,
       );
+    } else if (state is SearchingStateWithDevices) {
+      if (state.devices.isNotEmpty) {
+        return PrimaryButton(
+          label: 'Остановить поиск',
+          onPressed: () {
+            cubit.stopScanning();
+          },
+        );
+      } else {
+        return const PrimaryButton(
+          label: 'Поиск устройств',
+          onPressed: null,
+          enabled: false,
+        );
+      }
     } else if (state is DeviceListState) {
       return PrimaryButton(
         label: 'Поиск устройств',
@@ -264,30 +333,53 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
     } else if (state is TableViewState) {
       final mainData = context.read<MainData>();
       final hasActive = mainData.operations.any((op) => op.canSend);
+      final hasSelected =
+          mainData.operations.any((op) => op.selected && op.canSend);
+      final disabled = (state).disabled;
+      if (!hasActive) {
+        // Все операции экспортированы — не показываем кнопку вообще
+        return const SizedBox.shrink();
+      }
       return Column(
         children: [
+          BlocBuilder<ExportProgressCubit, ExportProgressState>(
+            builder: (context, progressState) {
+              if (progressState.isExporting) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8, left: 6, right: 6),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: LinearProgressIndicator(
+                      value: progressState.progress,
+                      minHeight: 6,
+                      color: const Color(0xFF2E6FED),
+                      backgroundColor: const Color(0xFFC0D5F2),
+                    ),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
           PrimaryButton(
-            label: hasActive ? 'Экспортировать' : 'Запрос',
-            enabled: (_hasTableSelection || !hasActive) && !_isRequesting,
-            onPressed: hasActive
-                ? (_hasTableSelection
-                    ? () {
-                        context.read<DeviceFlowCubit>().exportSelected();
-                        BlocProvider.of<DeviceFlowCubit>(context)
-                            .notifyTableChanged();
-                      }
-                    : null)
-                : () async {
-                    setState(() {
-                      _isRequesting = true;
-                    });
-                    await context
-                        .read<DeviceFlowCubit>()
-                        .loadLocalArchive(mainData.dbPath);
-                    setState(() {
-                      _isRequesting = false;
-                    });
-                  },
+            label: 'Экспортировать',
+            enabled: !disabled && hasSelected && !_isRequesting,
+            onPressed: !disabled && hasSelected
+                ? () {
+                    exportProgressCubit.start();
+                    context.read<DeviceFlowCubit>().exportSelected(
+                      onProgress: (progress) {
+                        print('PROGRESS: ' + progress.toString());
+                        exportProgressCubit.update(progress);
+                      },
+                      onFinish: () {
+                        exportProgressCubit.finish();
+                      },
+                    );
+                    BlocProvider.of<DeviceFlowCubit>(context)
+                        .notifyTableChanged();
+                  }
+                : null,
           )
         ],
       );
@@ -297,10 +389,33 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
         onPressed: cubit.startScanning,
       );
     } else if (state is ExportingState) {
-      return const PrimaryButton(
-        label: 'Отправка...',
-        enabled: false,
-        onPressed: null,
+      return Column(
+        children: [
+          BlocBuilder<ExportProgressCubit, ExportProgressState>(
+            builder: (context, progressState) {
+              if (progressState.isExporting) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8, left: 6, right: 6),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: LinearProgressIndicator(
+                      value: progressState.progress,
+                      minHeight: 6,
+                      color: const Color(0xFF2E6FED),
+                      backgroundColor: const Color(0xFFC0D5F2),
+                    ),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+          const PrimaryButton(
+            label: 'Отправка',
+            enabled: false,
+            onPressed: null,
+          ),
+        ],
       );
     } else if (state is ExportSuccessState) {
       return PrimaryButton(
@@ -311,9 +426,9 @@ class _DeviceFlowScreenState extends State<DeviceFlowScreen> {
       );
     } else if (state is NetErrorState) {
       return PrimaryButton(
-        label: 'На главную',
-        onPressed: () {
-          context.read<DeviceFlowCubit>().reset();
+        label: 'Запрос',
+        onPressed: () async {
+          await context.read<DeviceFlowCubit>().loadLocalArchive(state.dbPath);
         },
       );
     }
@@ -347,6 +462,7 @@ class _DeviceListBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<DeviceFlowCubit>();
+
     if (devices.isEmpty) {
       return const Center(
         child: Text(
@@ -355,17 +471,24 @@ class _DeviceListBody extends StatelessWidget {
         ),
       );
     }
-    return ListView.separated(
-      padding: EdgeInsets.zero,
-      itemCount: devices.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, index) {
-        final device = devices[index];
-        return DeviceTile(
-          device: device,
-          onTap: () => cubit.connectToDevice(device),
-        );
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: ListView.separated(
+            padding: EdgeInsets.zero,
+            itemCount: devices.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (_, index) {
+              final device = devices[index];
+              return DeviceTile(
+                device: device,
+                onTap: () => cubit.connectToDevice(device),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

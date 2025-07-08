@@ -13,6 +13,8 @@ import 'package:bluetooth_per/core/data/source/operation.dart';
 class DeviceFlowCubit extends Cubit<DeviceFlowState> {
   final BluetoothRepository _repository;
   final MainData _mainData;
+  final List<Device> _lastFoundDevices = [];
+  bool _searching = false;
 
   DeviceFlowCubit(this._repository, this._mainData)
       : super(const InitialSearchState()) {
@@ -47,24 +49,34 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
   // Start scanning for Bluetooth devices using the repository.
   Future<void> startScanning() async {
-    print('[DeviceFlowCubit] startScanning called');
+    _searching = true;
     emit(const SearchingState());
 
-    final result = await _repository.scanForDevices();
+    _lastFoundDevices.clear();
+    final result = await _repository.scanForDevices(
+      onDeviceFound: (entity) {
+        if (!_searching) return;
+        final device = _toUi(entity);
+        if (!_lastFoundDevices.any((d) => d.macAddress == device.macAddress)) {
+          _lastFoundDevices.add(device);
+          emit(SearchingStateWithDevices(List<Device>.from(_lastFoundDevices)));
+        }
+      },
+    );
 
     result.fold(
       (failure) {
-        print('[DeviceFlowCubit] startScanning: failure=$failure');
+        _searching = false;
         emit(const InitialSearchState());
       },
       (entities) {
+        _searching = false;
         final devices = entities.map(_toUi).toList();
-        print(
-            '[DeviceFlowCubit] startScanning: found ${devices.length} devices');
+        _lastFoundDevices.clear();
+        _lastFoundDevices.addAll(devices);
         if (devices.isEmpty) {
           emit(const InitialSearchState());
         } else {
-          // Всегда показываем список, даже если устройство одно
           emit(DeviceListState(devices));
         }
       },
@@ -73,8 +85,10 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
   // Connect to a selected device and request archive update.
   Future<void> connectToDevice(Device device) async {
+    _searching = false;
+    _repository.cancelScan();
     print(
-        '[DeviceFlowCubit] connectToDevice: ${device.name} (${device.macAddress})');
+        '[DeviceFlowCubit] connectToDevice: [36m${device.name}[0m ([36m${device.macAddress}[0m)');
     emit(UploadingState(device));
 
     final connectRes = await _repository.connectToDevice(_toEntity(device));
@@ -201,43 +215,54 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     print(
         '[DeviceFlowCubit] _handleDownloadedDb: awaitOperations status = $localStatus');
 
+    if (localStatus == OperStatus.dbError) {
+      emit(const DbErrorState('Файл не является базой данных или повреждён.'));
+      return;
+    }
+    if (localStatus == OperStatus.filePathError) {
+      emit(const DbErrorState('Не выбран файл базы данных.'));
+      return;
+    }
     if (localStatus != OperStatus.ok) {
-      print(
-          '[DeviceFlowCubit] _handleDownloadedDb: localStatus not ok, returning to InitialSearchState');
-      emit(const InitialSearchState());
+      emit(const DbErrorState('Неизвестная ошибка при открытии базы данных.'));
       return;
     }
 
-    // Проверяем связь с сервером – определяем canSend.
+    for (final op in _mainData.operations) {
+      await _mainData.awaitOperationPoints(op);
+    }
+
     final netStatus = await _mainData.awaitOperationsCanSendStatus();
-    print(
-        '[DeviceFlowCubit] _handleDownloadedDb: awaitOperationsCanSendStatus = $netStatus');
 
-    if (netStatus != OperStatus.ok) {
-      // Нет сети – помечаем архив как «ожидающий» и показываем список.
-      print(
-          '[DeviceFlowCubit] _handleDownloadedDb: netStatus not ok, marking as pending');
-      await ArchiveSyncManager.addPending(filePath);
-
-      emit(NetErrorState(filePath));
-      return;
-    }
-
-    final rows = _mainData.operations.map((op) {
+    final filteredOps = _mainData.operations
+        .where((op) => op.canSend == true || op.exported == true)
+        .toList();
+    final rows = filteredOps.map((op) {
       final dt = DateTime.fromMillisecondsSinceEpoch(op.dt * 1000);
       final wellId = op.hole;
       return TableRowData(date: dt, wellId: wellId);
     }).toList();
 
     print(
-        '[DeviceFlowCubit] _handleDownloadedDb: emitting TableViewState with ${rows.length} rows');
+        '[DeviceFlowCubit] _handleDownloadedDb: emitting TableViewState with \x1b[32m${rows.length}\x1b[0m rows');
     emit(TableViewState(
       connectedDevice: connectedDevice,
       entry: entry,
       rows: rows,
-      operations: _mainData.operations.toList(),
+      operations: filteredOps,
       isLoading: false,
     ));
+
+    // Обновляем таблицу после синхронизации с сервером
+    notifyTableChanged();
+
+    if (netStatus != OperStatus.ok) {
+      // Нет сети – помечаем архив как «ожидающий» и показываем ошибку, но таблица уже показана
+      print(
+          '[DeviceFlowCubit] _handleDownloadedDb: netStatus not ok, marking as pending');
+      await ArchiveSyncManager.addPending(filePath);
+      emit(NetErrorState(filePath));
+    }
   }
 
   // Reset to initial.
@@ -261,14 +286,30 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     ));
 
     final status = await _mainData.awaitOperations();
+
+    if (status == OperStatus.dbError) {
+      emit(const DbErrorState('Файл не является базой данных или повреждён.'));
+      return;
+    }
+    if (status == OperStatus.filePathError) {
+      emit(const DbErrorState('Не выбран файл базы данных.'));
+      return;
+    }
     if (status != OperStatus.ok) {
-      emit(const InitialSearchState());
+      emit(const DbErrorState('Неизвестная ошибка при открытии базы данных.'));
       return;
     }
 
-    await _mainData.awaitOperationsCanSendStatus();
+    for (final op in _mainData.operations) {
+      await _mainData.awaitOperationPoints(op);
+    }
 
-    final rows = _mainData.operations.map((op) {
+    final netStatus = await _mainData.awaitOperationsCanSendStatus();
+
+    final filteredOps = _mainData.operations
+        .where((op) => op.canSend == true || op.exported == true)
+        .toList();
+    final rows = filteredOps.map((op) {
       final dt = DateTime.fromMillisecondsSinceEpoch(op.dt * 1000);
       return TableRowData(date: dt, wellId: op.hole);
     }).toList();
@@ -277,31 +318,44 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       connectedDevice: Device(name: 'Local', macAddress: ''),
       entry: ArchiveEntry(fileName: dbPath, sizeBytes: 0),
       rows: rows,
-      operations: _mainData.operations.toList(),
+      operations: filteredOps,
       isLoading: false,
     ));
+
+    // Обновляем таблицу после синхронизации с сервером
+    notifyTableChanged();
+
+    if (netStatus != OperStatus.ok) {
+      emit(NetErrorState(dbPath));
+    }
   }
 
   /// Экспорт отмеченных операций на сервер соStatus
-  Future<void> exportSelected() async {
+  Future<void> exportSelected(
+      {void Function(double progress)? onProgress,
+      void Function()? onFinish}) async {
     if (state is! TableViewState) {
       print('[exportSelected] Not in TableViewState, current: $state');
       return;
     }
 
+    final prevState = state as TableViewState;
+    final connectedDevice = prevState.connectedDevice;
+    final entry = prevState.entry;
+    final rows = prevState.rows;
+
     final selected =
         _mainData.operations.where((op) => op.selected && op.canSend).toList();
-    print('[exportSelected] selected count: ${selected.length}');
+
+/*     for (final op in selected) {
+      await _mainData.awaitOperationPoints(op);
+    } */
 
     if (selected.isEmpty) {
-      print('[exportSelected] No operations selected for export');
       emit(TableViewState(
-        connectedDevice: Device(name: 'Local', macAddress: ''),
-        entry: ArchiveEntry(fileName: _mainData.dbPath, sizeBytes: 0),
-        rows: _mainData.operations.map((o) {
-          final dt = DateTime.fromMillisecondsSinceEpoch(o.dt * 1000);
-          return TableRowData(date: dt, wellId: o.hole);
-        }).toList(),
+        connectedDevice: connectedDevice,
+        entry: entry,
+        rows: rows,
         operations: _mainData.operations.toList(),
         isLoading: false,
       ));
@@ -315,7 +369,15 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     final archiveFileName = _mainData.dbPath.split('/').last;
     final exportedOps = <int>[];
 
-    // Копируем операции для накопления статусов
+    // --- Новый прогресс по точкам операций ---
+    final totalPoints =
+        selected.fold<int>(0, (sum, op) => sum + op.points.length);
+    int exportedPoints = 0;
+    print('[exportSelected] totalPoints = '
+        '\x1b[32m$totalPoints\u001b[0m');
+
+    emit(ExportingState(0, entry: entry, connectedDevice: connectedDevice));
+
     List<Operation> currentOps = _mainData.operations
         .map((op) => Operation(
               dt: op.dt,
@@ -340,12 +402,9 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
               ..checkError = false)
         .toList();
 
-    for (final op in selected) {
-      print(
-          '[exportSelected] Exporting operation dt=\u001b[33m${op.dt}\u001b[0m');
-      final code =
-          await _mainData.awaitSendingOperationWithProgress(op, (progress) {});
-      print('[exportSelected] Result for dt=${op.dt}: $code');
+    for (int i = 0; i < selected.length; i++) {
+      final op = selected[i];
+      final code = await _mainData.awaitSendingOperation(op);
       final idx = currentOps.indexWhere((o) => o.dt == op.dt);
       if (idx != -1) {
         if (code == 200) {
@@ -371,7 +430,10 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
           )
             ..selected = false
             ..canSend = false
-            ..checkError = false;
+            ..checkError = false
+            ..exported = true
+            ..unavailable = false
+            ..errorCode = 0;
           exportedOps.add(op.dt);
           await ExportStatusManager.addExportedOp(archiveFileName, op.dt);
         } else {
@@ -395,17 +457,45 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
           )
             ..selected = op.selected
             ..canSend = op.canSend
-            ..checkError = true;
+            ..checkError = true
+            ..exported = false
+            ..unavailable = false
+            ..errorCode = code;
         }
       }
+      exportedPoints += op.points.length;
+      final prog = totalPoints == 0 ? 1.0 : exportedPoints / totalPoints;
+      emit(ExportingState(
+        prog,
+        entry: entry,
+        connectedDevice: connectedDevice,
+      ));
+      if (onProgress != null) onProgress(prog);
+      // Обновляем таблицу после каждой операции, но блокируем UI
+      emit(TableViewState(
+        connectedDevice: connectedDevice,
+        entry: entry,
+        rows: rows,
+        operations: currentOps,
+        isLoading: false,
+        disabled: true,
+      ));
     }
-
+    // После завершения экспорта — разблокируем UI
+    emit(TableViewState(
+      connectedDevice: connectedDevice,
+      entry: entry,
+      rows: rows,
+      operations: currentOps,
+      isLoading: false,
+      disabled: false,
+    ));
+    onProgress!(0);
     // После экспорта обновляем основной список операций
     _mainData.operations
       ..clear()
       ..addAll(currentOps);
 
-    print('[exportSelected] All operations exported, marking archive exported');
     final allOpDts = currentOps.map((op) => op.dt).toList();
     final allExported = currentOps.every((op) => !op.canSend);
     if (allExported) {
@@ -419,18 +509,25 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
     // Сбросить прогресс
     emit(TableViewState(
-      connectedDevice: (state as TableViewState).connectedDevice,
-      entry: (state as TableViewState).entry,
-      rows: (state as TableViewState).rows,
+      connectedDevice: connectedDevice,
+      entry: entry,
+      rows: rows,
       operations: currentOps,
       isLoading: false,
     ));
+    // Обновляем таблицу после экспорта
+    notifyTableChanged();
+
+    if (onFinish != null) onFinish();
   }
 
   void notifyTableChanged() {
     if (state is TableViewState) {
       final s = state as TableViewState;
-      final rows = _mainData.operations.map((op) {
+      final filteredOps = _mainData.operations
+          .where((op) => op.canSend == true || op.exported == true)
+          .toList();
+      final rows = filteredOps.map((op) {
         final dt = DateTime.fromMillisecondsSinceEpoch(op.dt * 1000);
         return TableRowData(date: dt, wellId: op.hole);
       }).toList();
@@ -438,7 +535,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         connectedDevice: s.connectedDevice,
         entry: s.entry,
         rows: rows,
-        operations: _mainData.operations.toList(),
+        operations: filteredOps,
         isLoading: false,
       ));
     }
@@ -450,7 +547,9 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       ..addAll(ops);
     if (state is TableViewState) {
       final s = state as TableViewState;
-      final rows = ops.map((op) {
+      final filteredOps =
+          ops.where((op) => op.canSend == true || op.exported == true).toList();
+      final rows = filteredOps.map((op) {
         final dt = DateTime.fromMillisecondsSinceEpoch(op.dt * 1000);
         return TableRowData(date: dt, wellId: op.hole);
       }).toList();
@@ -458,9 +557,14 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         connectedDevice: s.connectedDevice,
         entry: s.entry,
         rows: rows,
-        operations: ops,
+        operations: filteredOps,
         isLoading: false,
       ));
     }
+  }
+
+  void stopScanning() {
+    _repository.cancelScan();
+    emit(DeviceListState(List<Device>.from(_lastFoundDevices)));
   }
 }

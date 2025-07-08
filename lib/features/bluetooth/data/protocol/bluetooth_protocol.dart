@@ -25,6 +25,7 @@ class BluetoothProtocol {
     return msg == 'UPDATING_ARCHIVE' || msg == 'ARCHIVE_UPDATING';
   }
 
+
   /// Проверка, что это ответ ARCHIVE_READY
   static bool isArchiveReady(Uint8List data) {
     final msg = _decode(data);

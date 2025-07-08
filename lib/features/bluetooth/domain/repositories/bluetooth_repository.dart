@@ -8,7 +8,8 @@ typedef DownloadProgressCallback = void Function(
 typedef DownloadCompleteCallback = void Function(String filePath);
 
 abstract class BluetoothRepository {
-  Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices();
+  Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices(
+      {void Function(BluetoothDeviceEntity)? onDeviceFound});
   Future<Either<Failure, bool>> connectToDevice(BluetoothDeviceEntity device);
   Future<Either<Failure, bool>> disconnectFromDevice(
       BluetoothDeviceEntity device);
@@ -25,4 +26,6 @@ abstract class BluetoothRepository {
 
   /// Запросить обновление архива. Возвращает Stream<String> с состояниями: 'ARCHIVE_UPDATING', 'ARCHIVE_READY'.
   Stream<String> requestArchiveUpdate();
+
+  void cancelScan();
 }

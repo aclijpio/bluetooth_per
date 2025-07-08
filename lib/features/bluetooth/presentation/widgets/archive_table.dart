@@ -12,11 +12,13 @@ class ArchiveTable extends StatelessWidget {
   final ArchiveEntry entry;
   final List<Operation> operations;
   final ValueChanged<bool>? onSelectionChanged;
+  final bool checkboxesEnabled;
   const ArchiveTable({
     super.key,
     required this.entry,
     required this.operations,
     this.onSelectionChanged,
+    this.checkboxesEnabled = true,
   });
 
   @override
@@ -45,18 +47,13 @@ class ArchiveTable extends StatelessWidget {
               ),
               BlocBuilder<DeviceFlowCubit, DeviceFlowState>(
                 builder: (context, state) {
-                  if (state is ExportingState) {
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 24.0),
-                      child: ProgressBarWithPercent(progress: state.progress),
-                    );
-                  }
-                  if (operations.isNotEmpty &&
-                      operations.where((op) => op.canSend).isEmpty) {
+                  final hasError = operations.isNotEmpty &&
+                      operations.every((op) => op.unavailable || op.checkError);
+                  if (hasError) {
                     return const Padding(
                       padding: EdgeInsets.only(top: 5.0),
                       child: Text(
-                        'Нет связи с сервером или интернетом.',
+                        'Нет связи с сервером.',
                         style: TextStyle(color: Colors.red, fontSize: 16),
                       ),
                     );
@@ -73,35 +70,46 @@ class ArchiveTable extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
           child: Row(
             children: [
-              _checkbox(_allSelected(operations), (v) {
-                final newValue = v ?? false;
-                final updatedOps = operations
-                    .map((op) => Operation(
-                          dt: op.dt,
-                          dtStop: op.dtStop,
-                          maxP: op.maxP,
-                          idOrg: op.idOrg,
-                          workType: op.workType,
-                          ngdu: op.ngdu,
-                          field: op.field,
-                          section: op.section,
-                          bush: op.bush,
-                          hole: op.hole,
-                          brigade: op.brigade,
-                          lat: op.lat,
-                          lon: op.lon,
-                          equipment: op.equipment,
-                          pCnt: op.pCnt,
-                          points: op.points,
-                        )
-                          ..selected = newValue
-                          ..canSend = op.canSend
-                          ..checkError = op.checkError)
-                    .toList();
-                onSelectionChanged?.call(updatedOps.any((op) => op.selected));
-                BlocProvider.of<DeviceFlowCubit>(context)
-                    .updateOperations(updatedOps);
-              }),
+              _checkbox(
+                _allSelected(operations),
+                checkboxesEnabled
+                    ? (v) {
+                        final newValue = v ?? false;
+                        final updatedOps = operations.map((op) {
+                          final canToggle =
+                              !op.unavailable && !op.exported && op.canSend;
+                          return Operation(
+                            dt: op.dt,
+                            dtStop: op.dtStop,
+                            maxP: op.maxP,
+                            idOrg: op.idOrg,
+                            workType: op.workType,
+                            ngdu: op.ngdu,
+                            field: op.field,
+                            section: op.section,
+                            bush: op.bush,
+                            hole: op.hole,
+                            brigade: op.brigade,
+                            lat: op.lat,
+                            lon: op.lon,
+                            equipment: op.equipment,
+                            pCnt: op.pCnt,
+                            points: op.points,
+                          )
+                            ..selected = canToggle ? newValue : op.selected
+                            ..canSend = op.canSend
+                            ..checkError = op.checkError
+                            ..exported = op.exported
+                            ..unavailable = op.unavailable;
+                        }).toList();
+                        onSelectionChanged
+                            ?.call(updatedOps.any((op) => op.selected));
+                        BlocProvider.of<DeviceFlowCubit>(context)
+                            .updateOperations(updatedOps);
+                      }
+                    : null,
+                enabled: checkboxesEnabled,
+              ),
               const SizedBox(width: 10),
               const Expanded(
                 child: Row(
@@ -180,7 +188,9 @@ class ArchiveTable extends StatelessWidget {
                             )
                               ..selected = v ?? false
                               ..canSend = o.canSend
-                              ..checkError = o.checkError;
+                              ..checkError = o.checkError
+                              ..exported = o.exported
+                              ..unavailable = o.unavailable;
                           } else {
                             return o;
                           }
@@ -190,7 +200,10 @@ class ArchiveTable extends StatelessWidget {
                         BlocProvider.of<DeviceFlowCubit>(context)
                             .updateOperations(updatedOps);
                       },
-                      enabled: op.canSend,
+                      enabled: checkboxesEnabled &&
+                          !op.unavailable &&
+                          !op.exported &&
+                          op.canSend,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -260,8 +273,24 @@ class ArchiveTable extends StatelessWidget {
   }
 
   Widget _buildExportStatus(Operation op) {
-    if (op.checkError) {
-      return const Icon(Icons.error, color: Colors.red, size: 22);
+    if (op.exported) {
+      return Tooltip(
+        message: 'Операция успешно экспортирована',
+        child: Icon(Icons.check_circle, color: Colors.green, size: 22),
+        triggerMode: TooltipTriggerMode.tap,
+      );
+    } else if (op.unavailable || op.checkError) {
+      String msg = op.unavailable
+          ? 'нет связи или ошибка'
+          : 'Ошибка при экспорте операции';
+      if (op.errorCode != 0) {
+        msg += '\nКод ошибки: ${op.errorCode}';
+      }
+      return Tooltip(
+        message: msg,
+        child: Icon(Icons.error, color: Colors.red, size: 22),
+        triggerMode: TooltipTriggerMode.tap,
+      );
     } else {
       return const SizedBox.shrink();
     }

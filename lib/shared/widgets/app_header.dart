@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class AppHeader extends StatelessWidget {
   const AppHeader({super.key});
@@ -11,16 +12,17 @@ class AppHeader extends StatelessWidget {
         color: Color(0xFF0B78CC), // Цвет PrimaryButton
       ),
       width: double.infinity,
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.bluetooth,
-            color: Colors.white,
-            size: 36,
+          SvgPicture.asset(
+            'assets/images/logo.svg',
+            width: 36,
+            height: 36,
+            colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
           ),
-          SizedBox(width: 16),
-          Text(
+          const SizedBox(width: 16),
+          const Text(
             'Quantor',
             style: TextStyle(
               color: Colors.white,

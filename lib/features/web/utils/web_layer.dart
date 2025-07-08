@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:bluetooth_per/common/config.dart';
 import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
 import 'package:dio/dio.dart';
 
@@ -7,10 +8,9 @@ import '../../../core/data/source/operation.dart';
 import 'server_connection.dart';
 
 class WebLayer {
-  static const String constUuid = "595a31f7-ad09-43ff-9a04-1c29bfe795cb";
+  static const String constUuid = AppConfig.webUUID;
 
-  static Future<OperListResponse> exportOperList(
-      String serial, List<Operation> operations) async {
+  static Future<OperListResponse> exportOperList( String serial, List<Operation> operations) async {
     Map<String, dynamic> request = {
       "serial": serial,
       "uuid": constUuid,
@@ -45,15 +45,12 @@ class WebLayer {
       "points": op.points.map((e) => e.toSendMap()).toList(),
     };
     String reqStr = json.encode(request);
-    print('[WebLayer] exportOperData: request=$reqStr');
     dynamic response =
         await ServerConnection.postReqRetry(reqStr, 'send_archive')
             .timeout(const Duration(seconds: 100040), onTimeout: () {
-      print('[WebLayer] exportOperData: timeout');
       return 408;
     });
 
-    print('[WebLayer] exportOperData: response=$response');
     if (response.runtimeType == int) {
       return response;
     } else {
@@ -71,18 +68,27 @@ class WebLayer {
     };
     String reqStr = json.encode(request);
     final dio = Dio();
+    print("Request " + reqStr);
     try {
       final response = await dio.post(
         'http://tms.quantor-t.ru:8080/send_archive',
         data: reqStr,
         options: Options(headers: {'Content-Type': 'application/json'}),
+        onSendProgress: (int sent, int total) {
+          if (total > 0) {
+            onProgress(sent / total);
+          }
+        },
       );
       if (response.statusCode == 200) {
+        onProgress(1.0);
         return 200;
       } else {
+        onProgress(1.0);
         return response.statusCode ?? 500;
       }
     } catch (e) {
+      onProgress(1.0);
       return 500;
     }
   }

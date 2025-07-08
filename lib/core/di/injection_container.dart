@@ -7,31 +7,30 @@ import '../../features/bluetooth/data/repositories/bluetooth_repository_impl.dar
 import '../../features/bluetooth/data/transport/bluetooth_transport.dart';
 import '../../features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import '../../features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
-import 'injection_container.dart';
+import '../../shared/bloc/app_state_cubit.dart';
+import '../../core/utils/archive_sync_manager.dart';
+import '../../core/utils/export_status_manager.dart';
 
 final sl = GetIt.instance;
 
 Future<void> init() async {
-  sl.registerFactory(
-    () => BluetoothBloc(
-      repository: sl(),
-      mainData: sl(),
-    ),
-  );
+  // Core - Utils
+  _registerUtils();
 
-  sl.registerLazySingleton(() => FlutterBlueClassic());
+  // Core - Data
+  _registerData();
 
-  sl.registerLazySingleton(() => BluetoothTransport(sl()));
+  // External Dependencies
+  _registerExternalDependencies();
 
-  sl.registerLazySingleton<BluetoothRepository>(
-    () => BluetoothRepositoryImpl(
-      sl<BluetoothTransport>(),
-      sl<FlutterBlueClassic>(),
-    ),
-  );
+  // Features - Bluetooth
+  _registerBluetooth();
 
-  sl.registerLazySingleton(() => MainData());
+  // Shared - State Management
+  _registerSharedComponents();
+}
 
+void _registerUtils() {
   sl.registerLazySingleton(() => Logger(
         printer: PrettyPrinter(
           methodCount: 2,
@@ -42,12 +41,40 @@ Future<void> init() async {
           printTime: true,
         ),
       ));
+}
 
-  // Features - Bluetooth
-  // Data sources
-  // Repositories
-  // Use cases
-  // BLoCs
+void _registerData() {
+  sl.registerLazySingleton(() => MainData());
+}
+
+void _registerExternalDependencies() {
+  sl.registerLazySingleton(() => FlutterBlueClassic());
+}
+
+void _registerBluetooth() {
+  // Transport layer
+  sl.registerLazySingleton(() => BluetoothTransport(sl()));
+
+  // Repository layer
+  sl.registerLazySingleton<BluetoothRepository>(
+    () => BluetoothRepositoryImpl(
+      sl<BluetoothTransport>(),
+      sl<FlutterBlueClassic>(),
+    ),
+  );
+
+  // BLoC layer
+  sl.registerFactory(
+    () => BluetoothBloc(
+      repository: sl(),
+      mainData: sl(),
+    ),
+  );
+}
+
+void _registerSharedComponents() {
+  // State management
+  sl.registerFactory(() => AppStateCubit());
 }
 
 /*
