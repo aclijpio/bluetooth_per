@@ -12,8 +12,10 @@ class ArchiveSyncManager {
   ArchiveSyncManager._();
 
   static Future<Directory> getArchivesDirectory() async {
-    String basePath = "/storage/emulated/0/Download";
+    final basePath = await ExternalPath.getExternalStoragePublicDirectory(
+        ExternalPath.DIRECTORY_DOWNLOAD);
     final archiveDir = Directory(p.join(basePath, AppConfig.archivesDirName));
+    print(archiveDir);
     if (!await archiveDir.exists()) {
       await archiveDir.create(recursive: true);
     }
@@ -23,7 +25,6 @@ class ArchiveSyncManager {
   static Future<List<String>> getPending() async {
     final archiveDir = await getArchivesDirectory();
     if (!await archiveDir.exists()) {
-      print('[ArchiveSyncManager] getPending: archiveDir не найден');
       return [];
     }
     final files = await archiveDir.list().toList();
@@ -38,9 +39,19 @@ class ArchiveSyncManager {
   }
 
   static Future<void> addPending(String path) async {
-    // Этот метод теперь не нужен, так как файл уже создается с суффиксом NEED_EXPORT
-    // при загрузке в BluetoothRepositoryImpl
-    print('[ArchiveSyncManager] addPending called for: $path');
+    if (path.endsWith(AppConfig.notExportedSuffix + AppConfig.dbExtension)) {
+      return;
+    }
+    final file = File(path);
+    if (await file.exists()) {
+      final newPath = path.replaceFirst(RegExp(r'\.db$'),
+          '${AppConfig.notExportedSuffix}${AppConfig.dbExtension}');
+      try {
+        await file.rename(newPath);
+      } catch (_) {
+        // Игнорируем ошибки, например, если файл уже существует
+      }
+    }
   }
 
   static Future<void> markExported(String pendingPath) async {
@@ -54,9 +65,6 @@ class ArchiveSyncManager {
     final file = File(pendingPath);
     if (await file.exists()) {
       await file.rename(exportedPath);
-      print('[ArchiveSyncManager] markExported: renamed to $exportedPath');
-    } else {
-      print('[ArchiveSyncManager] markExported: file does not exist');
     }
   }
 
@@ -66,9 +74,7 @@ class ArchiveSyncManager {
         .replaceAll(AppConfig.notExportedSuffix + AppConfig.dbExtension, '')
         .replaceAll(AppConfig.dbExtension, '');
     final match = RegExp(r'^([^_]+)_(.+)$').firstMatch(file);
-    final display = match != null ? match.group(1)! : file;
-    print('[ArchiveSyncManager] getDisplayName: path=$path display=$display');
-    return display;
+    return match != null ? match.group(1)! : file;
   }
 
   // Удаляет архив из списка ожидающих (удаляет файл)
@@ -76,13 +82,9 @@ class ArchiveSyncManager {
     final file = File(path);
     if (await file.exists()) {
       await file.delete();
-      print('[ArchiveSyncManager] deletePending: deleted file at $path');
-
       // Также удаляем статус экспорта из ExportStatusManager
       final fileName = p.basename(path);
       await ExportStatusManager.removeArchiveStatus(fileName);
-    } else {
-      print('[ArchiveSyncManager] deletePending: file not found at $path');
     }
   }
 }

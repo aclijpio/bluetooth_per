@@ -30,17 +30,17 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   StreamSubscription? _downloadSubscription;
   String? _readyArchivePath;
 
-  /// Паттерн допустимого имени устройства «Quantor A000AA0000».
+  /// Паттерн для проверки имени устройства Quantor.
   /// Пример: Quantor A123BC, Quantor A123BC1234.
   static final RegExp _quantorNameRegExp =
       RegExp(r'^Quantor [A-Z]\d{3}[A-Z]{2}\d{0,4}$', caseSensitive: false);
 
   BluetoothRepositoryImpl(this._transport, this._flutterBlueClassic);
 
-  /// Проверяет все необходимые разрешения и состояние Bluetooth для сканирования
+  /// Проверяет необходимые разрешения и состояние Bluetooth.
   Future<Either<Failure, bool>> _checkBluetoothPermissions() async {
     try {
-      // Сначала проверяем включен ли Bluetooth
+      // 1. Проверяем, включен ли Bluetooth
       final isBluetoothEnabledResult = await isBluetoothEnabled();
       bool bluetoothEnabled = false;
       isBluetoothEnabledResult.fold(
@@ -48,69 +48,43 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         (enabled) => bluetoothEnabled = enabled,
       );
 
-      print('[BluetoothRepo] Bluetooth enabled: $bluetoothEnabled');
-
       if (!bluetoothEnabled) {
         return Left(BluetoothFailure(message: 'BLUETOOTH_DISABLED'));
       }
 
-      // Проверяем базовые Bluetooth разрешения
-      final bluetoothStatus = await Permission.bluetooth.status;
+      // 2. Проверяем разрешения
+      final permissionsToRequest = <Permission>[];
+      final locationPermissions = <Permission>[
+        Permission.location,
+        Permission.locationWhenInUse
+      ];
 
-      // На Android 12+ нужны новые разрешения
-      final bluetoothScanStatus = await Permission.bluetoothScan.status;
-      final bluetoothConnectStatus = await Permission.bluetoothConnect.status;
-
-      // На Android 10- нужны разрешения местоположения для Bluetooth сканирования
-      final locationStatus = await Permission.location.status;
-      final locationWhenInUseStatus = await Permission.locationWhenInUse.status;
-
-      print('[BluetoothRepo] Permission status:');
-      print('  Bluetooth: $bluetoothStatus');
-      print('  BluetoothScan: $bluetoothScanStatus');
-      print('  BluetoothConnect: $bluetoothConnectStatus');
-      print('  Location: $locationStatus');
-      print('  LocationWhenInUse: $locationWhenInUseStatus');
-
-      // Автоматически запрашиваем разрешения если нужно
-      List<Permission> permissionsToRequest = [];
-
-      // Проверяем базовые разрешения
-      if (bluetoothStatus.isDenied &&
-          bluetoothStatus != PermissionStatus.permanentlyDenied) {
-        permissionsToRequest.add(Permission.bluetooth);
-      }
-
-      // Для Android 12+ проверяем новые разрешения
-      if (bluetoothScanStatus.isDenied &&
-          bluetoothScanStatus != PermissionStatus.permanentlyDenied) {
+      // Android 12+
+      if (await Permission.bluetoothScan.isDenied) {
         permissionsToRequest.add(Permission.bluetoothScan);
       }
-
-      if (bluetoothConnectStatus.isDenied &&
-          bluetoothConnectStatus != PermissionStatus.permanentlyDenied) {
+      if (await Permission.bluetoothConnect.isDenied) {
         permissionsToRequest.add(Permission.bluetoothConnect);
       }
 
-      // Для старых версий Android нужны разрешения местоположения
-      final hasLocationPermission =
-          locationStatus.isGranted || locationWhenInUseStatus.isGranted;
-      if (!hasLocationPermission) {
-        if (locationStatus.isDenied &&
-            locationStatus != PermissionStatus.permanentlyDenied) {
-          permissionsToRequest.add(Permission.location);
-        }
-        if (locationWhenInUseStatus.isDenied &&
-            locationWhenInUseStatus != PermissionStatus.permanentlyDenied) {
-          permissionsToRequest.add(Permission.locationWhenInUse);
-        }
+      // Android 11 и ниже
+      if (!(await Permission.bluetooth.isGranted)) {
+        permissionsToRequest.add(Permission.bluetooth);
       }
 
-      // Запрашиваем разрешения если нужно
+      bool hasLocation = false;
+      for (final p in locationPermissions) {
+        if (await p.isGranted) {
+          hasLocation = true;
+          break;
+        }
+      }
+      if (!hasLocation) {
+        permissionsToRequest.addAll(locationPermissions);
+      }
+
       if (permissionsToRequest.isNotEmpty) {
-        print('[BluetoothRepo] Requesting permissions: $permissionsToRequest');
         await permissionsToRequest.request();
-        // Система покажет свои диалоги, продолжаем независимо от результата
       }
 
       return const Right(true);
@@ -122,21 +96,22 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   @override
   Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices(
       {void Function(BluetoothDeviceEntity)? onDeviceFound}) async {
-    // Сначала проверяем разрешения
     final permissionCheck = await _checkBluetoothPermissions();
     if (permissionCheck.isLeft()) {
-      return permissionCheck.fold((failure) => Left(failure),
-          (_) => Left(BluetoothFailure(message: 'Unknown permission error')));
+      return permissionCheck.fold(
+          (failure) => Left(failure),
+          (_) =>
+              Left(BluetoothFailure(message: 'Неизвестная ошибка разрешений')));
     }
 
     try {
       const int maxAttempts = 1;
-      const Duration attemptDuration = Duration(seconds: 50);
+      const Duration attemptDuration = AppConfig.attemptDuration;
 
       final found = <BluetoothDeviceEntity>[];
 
       for (int attempt = 0; attempt < maxAttempts; attempt++) {
-        _flutterBlueClassic.stopScan(); // на всякий
+        _flutterBlueClassic.stopScan();
 
         final completer = Completer<void>();
 
@@ -146,17 +121,11 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           if (!_quantorNameRegExp.hasMatch(name)) return;
 
           if (!found.any((e) => e.address == d.address)) {
-            found.add(BluetoothDeviceEntity(address: d.address, name: d.name));
-            if (onDeviceFound != null) {
-              onDeviceFound(
-                  BluetoothDeviceEntity(address: d.address, name: d.name));
-            }
+            final device =
+                BluetoothDeviceEntity(address: d.address, name: d.name);
+            found.add(device);
+            onDeviceFound?.call(device);
           }
-
-          // как только нашли хотя бы одно, завершаем попытку досрочно
-/*
-          if (!completer.isCompleted) completer.complete();
-*/
         });
 
         _flutterBlueClassic.startScan();
@@ -171,7 +140,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
         if (found.isNotEmpty) break;
 
-        await Future.delayed(const Duration(seconds: 1));
+        await Future.delayed(AppConfig.uiShortDelay);
       }
       return Right(found);
     } catch (e) {
@@ -187,10 +156,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     final completer = Completer<BluetoothConnection?>();
     Timer? timeoutTimer;
     bool finished = false;
-    timeoutTimer = Timer(const Duration(seconds: 15), () {
+    timeoutTimer = Timer(AppConfig.bluetoothCommandTimeout, () {
       if (!finished) {
         finished = true;
-        completer.completeError(TimeoutException('Connection timeout'));
+        completer.completeError(TimeoutException('Таймаут подключения'));
       }
     });
     () async {
@@ -199,17 +168,17 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           connection = await _flutterBlueClassic.connect(device.address);
           if (connection == null) {
             attempts++;
-            await Future.delayed(const Duration(milliseconds: 500));
+            await Future.delayed(AppConfig.shortDelay);
             continue;
           }
           int waitAttempts = 0;
           while (!(connection?.isConnected ?? false) && waitAttempts < 3) {
-            await Future.delayed(const Duration(milliseconds: 100));
+            await Future.delayed(AppConfig.veryShortDelay);
             waitAttempts++;
           }
           if (!(connection?.isConnected ?? false)) {
             attempts++;
-            await Future.delayed(const Duration(milliseconds: 500));
+            await Future.delayed(AppConfig.shortDelay);
             continue;
           }
           if (!finished && connection != null) {
@@ -221,19 +190,19 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         } catch (e) {
           attempts++;
           if (attempts < maxAttempts) {
-            await Future.delayed(const Duration(milliseconds: 500));
+            await Future.delayed(AppConfig.shortDelay);
           }
         }
       }
       if (!finished) {
         finished = true;
         timeoutTimer?.cancel();
-        completer.completeError(Exception(
-            'Failed to establish connection after $maxAttempts attempts'));
+        completer.completeError(
+            Exception('Не удалось подключиться после $maxAttempts попыток'));
       }
     }();
     final result = await completer.future;
-    if (result == null) throw Exception('Connection is null');
+    if (result == null) throw Exception('Соединение не установлено');
     return result;
   }
 
@@ -241,7 +210,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   Future<Either<Failure, bool>> connectToDevice(
       BluetoothDeviceEntity device) async {
     if (_isConnecting) {
-      return Left(ConnectionFailure(message: 'Connection in progress'));
+      return Left(ConnectionFailure(message: 'Идет подключение...'));
     }
 
     try {
@@ -253,14 +222,12 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         _isConnected = true;
         return const Right(true);
       } else {
-        print('Connection failed or not established');
         _isConnecting = false;
         _isConnected = false;
         return Left(
-            ConnectionFailure(message: 'Failed to establish connection'));
+            ConnectionFailure(message: 'Не удалось установить соединение'));
       }
     } catch (e) {
-      print('Error connecting to device: $e');
       _isConnecting = false;
       _isConnected = false;
       return Left(ConnectionFailure(message: e.toString()));
@@ -287,7 +254,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     if (_readyArchivePath != null) {
       return Right([_readyArchivePath!]);
     }
-    return Left(ConnectionFailure(message: 'Archive path not ready'));
+    return Left(ConnectionFailure(message: 'Путь к архиву не готов'));
   }
 
   void _sendWriteUTF(String message) {
@@ -303,17 +270,16 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
         _connection!.output.add(bytes);
       } catch (e) {
-        print('Error sending message via writeUTF: $e');
+        // Ошибка при отправке
       }
     } else {
-      print('Cannot send message: not connected');
+      // Нет подключения
     }
   }
 
   void _sendWriteUTFWithConnection(
       BluetoothConnection connection, String message) {
     if (!connection.isConnected) {
-      print('Cannot send message: connection is not established');
       return;
     }
 
@@ -327,11 +293,9 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
       if (connection.isConnected) {
         connection.output.add(bytes);
-      } else {
-        print('Connection lost before sending message');
       }
     } catch (e) {
-      print('Error sending message via writeUTF: $e');
+      // Ошибка при отправке
     }
   }
 
@@ -344,7 +308,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   }) async {
     try {
       _isCancelled = false;
-      print('Starting file download for: $fileName');
 
       final directory = await getApplicationDocumentsDirectory();
 
@@ -370,6 +333,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       final finalFileName = AppConfig.notExportedFileName(
           deviceName, baseName.replaceAll(AppConfig.dbExtension, ''));
 
+      // Гибридная буферизация: сначала в память, при превышении лимита - в файл
       const int memoryLimit = 124 * 1024 * 1024; // 124 МБ
       BytesBuilder memoryBuffer = BytesBuilder();
       bool switchedToFile = false;
@@ -379,14 +343,8 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       int expectedFileSize = 0;
       bool isReadingFileData = false;
       List<int> responseBuffer = [];
-      List<int> allReceivedData = [];
-      Future<void> flushSink() async {
-        if (sink != null) {
-          await sink!.flush();
-        }
-      }
 
-      Future<void> closeSink() async {
+      Future<void> flushAndCloseSink() async {
         if (sink != null) {
           await sink!.flush();
           await sink!.close();
@@ -396,7 +354,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
       Future<void> addToBufferOrFile(List<int> data) async {
         receivedBytes += data.length;
-        allReceivedData.addAll(data);
+
         if (!switchedToFile) {
           memoryBuffer.add(data);
           if (memoryBuffer.length >= memoryLimit) {
@@ -413,9 +371,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           onProgress?.call(progress, expectedFileSize);
         }
       }
-      // --- конец гибридной буферизации ---
 
-      // Reuse уже открытое соединение, если оно есть
       BluetoothConnection? connection = _connection;
       int retryCount = 0;
       const maxRetries = 2;
@@ -423,17 +379,14 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       while (retryCount < maxRetries && !_isCancelled) {
         try {
           if (connection == null || !(connection.isConnected)) {
-            print(
-                'Connecting to device: ${device.address} (attempt ${retryCount + 1})');
             connection = await _connectToDevice(device);
-            await Future.delayed(const Duration(milliseconds: 500));
+            await Future.delayed(AppConfig.shortDelay);
           }
 
           if (connection == null || !(connection.isConnected)) {
-            throw Exception('Connection lost');
+            throw Exception('Соединение потеряно');
           }
 
-          print('Sending GET_ARCHIVE request');
           connection.output.add(BluetoothProtocol.getArchiveCmd(fileName));
 
           final responseCompleter = Completer<bool>();
@@ -441,9 +394,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           _downloadSubscription = connection.input?.listen(
             (data) async {
               if (_isCancelled) {
-                await flushSink();
-                await closeSink();
-                responseCompleter.complete(false);
+                await flushAndCloseSink();
+                if (!responseCompleter.isCompleted) {
+                  responseCompleter.complete(false);
+                }
                 return;
               }
 
@@ -464,8 +418,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
               }
 
               if (expectedFileSize > 0 && receivedBytes >= expectedFileSize) {
-                await flushSink();
-                await closeSink();
+                await flushAndCloseSink();
                 String finalPath;
                 if (!switchedToFile) {
                   final bytes = memoryBuffer.takeBytes();
@@ -477,7 +430,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                       finalPath = rawFile.path;
                       await ArchiveSyncManager.addPending(finalPath);
                     } catch (e) {
-                      print('Error while decompressing: $e');
                       finalPath =
                           p.join(directory.path, sanitizedFileName); // fallback
                       await File(finalPath).writeAsBytes(bytes);
@@ -505,7 +457,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                       await tempFile!.delete();
                       await ArchiveSyncManager.addPending(finalPath);
                     } catch (e) {
-                      print('Error while decompressing: $e');
                       finalPath = tempFile!.path; // fallback
                     }
                   } else {
@@ -522,7 +473,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                         moved = true;
                         await ArchiveSyncManager.addPending(destPath);
                       } catch (e) {
-                        print('Cannot move file to downloads: $e');
+                        // не удалось переместить
                       }
                     }
                     finalPath = moved ? destPath : tempFile!.path;
@@ -536,21 +487,14 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
               }
             },
             onError: (error) async {
-              print('Error during file download: $error');
-              await flushSink();
-              await closeSink();
+              await flushAndCloseSink();
               if (!responseCompleter.isCompleted) {
                 responseCompleter.completeError(error);
               }
             },
             onDone: () async {
-              print(
-                  'Connection closed, received $receivedBytes of $expectedFileSize bytes');
-              await flushSink();
-              await closeSink();
+              await flushAndCloseSink();
               if (receivedBytes < expectedFileSize && !_isCancelled) {
-                print(
-                    'Connection closed before download completed, will retry');
                 if (!responseCompleter.isCompleted) {
                   responseCompleter.complete(false);
                 }
@@ -564,28 +508,21 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
           if (response || _isCancelled) {
             if (_isCancelled) {
-              print('Download cancelled successfully');
               await tempFile?.delete();
               return const Right(true);
             }
-            print('File download completed successfully');
             return const Right(true);
           } else {
             retryCount++;
             if (retryCount < maxRetries) {
-              print(
-                  'Retrying download (attempt ${retryCount + 1} of $maxRetries)');
-              await Future.delayed(const Duration(seconds: 1));
+              await Future.delayed(AppConfig.uiShortDelay);
               continue;
             }
           }
         } catch (e) {
-          print('Error during download attempt ${retryCount + 1}: $e');
           retryCount++;
           if (retryCount < maxRetries) {
-            print(
-                'Retrying download (attempt ${retryCount + 1} of $maxRetries)');
-            await Future.delayed(const Duration(seconds: 1));
+            await Future.delayed(AppConfig.uiShortDelay);
             continue;
           }
         }
@@ -596,9 +533,8 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         return const Right(true);
       }
       return Left(FileOperationFailure(
-          message: 'Failed to download file after $maxRetries attempts'));
+          message: 'Не удалось загрузить файл после $maxRetries попыток'));
     } catch (e) {
-      print('Error in downloadFile: $e');
       return Left(FileOperationFailure(message: e.toString()));
     }
   }
@@ -628,11 +564,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   @override
   Future<Either<Failure, bool>> enableBluetooth() async {
     try {
-      print('[BluetoothRepo] enableBluetooth: requesting Bluetooth turn on');
       _flutterBlueClassic.turnOn();
 
       // Ждем некоторое время для включения Bluetooth и проверяем статус
-      await Future.delayed(const Duration(seconds: 2));
+      await Future.delayed(AppConfig.serverConnectionRetryDelay);
 
       final isEnabledResult = await isBluetoothEnabled();
       return isEnabledResult.fold(
@@ -641,25 +576,19 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                 'Не удалось проверить статус Bluetooth: ${failure.message}')),
         (isEnabled) {
           if (isEnabled) {
-            print(
-                '[BluetoothRepo] enableBluetooth: Bluetooth successfully enabled');
             return const Right(true);
           } else {
-            print(
-                '[BluetoothRepo] enableBluetooth: Bluetooth was not enabled (user denied?)');
             return Left(BluetoothFailure(
                 message: 'Пользователь отклонил включение Bluetooth'));
           }
         },
       );
     } catch (e) {
-      print('[BluetoothRepo] enableBluetooth: error - $e');
       return Left(BluetoothFailure(message: e.toString()));
     }
   }
 
   Future<void> _listenToConnection(BluetoothConnection connection) async {
-    print('Старт...');
     connection.input?.listen(
       (data) {
         if (data.length >= 2) {
@@ -667,19 +596,18 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         }
       },
       onDone: () {
-        print('Connection closed');
         _isConnected = false;
         _connection = null;
       },
       onError: (error) {
-        print('Connection error: $error');
         _isConnected = false;
         _connection = null;
       },
     );
   }
 
-  /// Запросить обновление архива. Возвращает Stream<String> с состояниями: 'ARCHIVE_UPDATING', 'ARCHIVE_READY'.
+  /// Запрашивает обновление архива.
+  /// Возвращает [Stream] с состояниями: 'ARCHIVE_UPDATING', 'ARCHIVE_READY'.
   @override
   Stream<String> requestArchiveUpdate() {
     final controller = StreamController<String>();
@@ -690,9 +618,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     }
     final completer = Completer<void>();
     final subscription = _connection!.input?.listen((Uint8List data) {
-      print('[Repo] recv ${data.length} bytes: ' +
-          data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' '));
-
       if (BluetoothProtocol.isArchiveUpdating(data)) {
         controller.add('ARCHIVE_UPDATING');
       } else if (BluetoothProtocol.isArchiveReady(data)) {

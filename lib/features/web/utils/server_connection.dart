@@ -1,94 +1,91 @@
 import 'dart:io';
 
+import 'package:bluetooth_per/common/config.dart';
 import 'package:http/http.dart' as http;
 
 class ServerConnection {
-  static const String _address = 'http://tms.quantor-t.ru:8080'; //Сервер
-  //static const String _address = 'http://localhost:8080';
+  /// Адрес сервера
+  static const String _address = AppConfig.serverBaseUrl;
 
+  /// Отправляет POST-запрос на сервер.
+  ///
+  /// Возвращает тело ответа в виде [String] при успехе (код 200),
+  /// в противном случае возвращает код статуса [int].
+  ///
+  /// Коды ошибок:
+  /// - 401: Просрочен UUID
+  /// - 418: Неверный логин или пароль
+  /// - 500: Ошибка на сервере
+  /// - 408: Таймаут на стороне клиента
+  /// - 524: Таймаут на стороне сервера
+  /// - 400: Некорректный запрос
+  /// - 410: Long poll отменен
   static Future<dynamic> postReq(String message, String path) async {
-    /// 401 - просрочен uuid
-    /// 418 - неверный логин или пароль(8.1 request)
-    /// 500 - ошибка на сервере
-    /// 408 - время ожидания вышло в клиенте
-    /// 524 - время ожидания вышло на сервере
-    /// 15  - ошибка нашей обработки
-    /// 400 - некорректный запрос
-    /// 410 = long poll отменён
-    print('[ServerConnection] postReq: path=$path message=$message');
     try {
       final res = await http.post(Uri.parse('$_address/$path'), body: message);
-      print('[ServerConnection] postReq: statusCode=${res.statusCode}');
       if (res.statusCode == 200) {
-        print('[ServerConnection] postReq: response=${res.body}');
         return res.body.toString();
       } else {
-        print('[ServerConnection] postReq: error statusCode=${res.statusCode}');
         return res.statusCode;
       }
     } catch (e) {
-      print('[ServerConnection] postReq: exception=$e');
       return 500;
     }
   }
 
-  /// То же, что [postReq], но делает до [maxAttempts] повторов
-  /// с экспоненциальной задержкой (1s, 2s, 4s …).
+  /// Отправляет POST-запрос с несколькими попытками.
+  ///
+  /// Выполняет до [maxAttempts] попыток с экспоненциальной задержкой
+  /// (например, 1с, 2с, 4с...).
   static Future<dynamic> postReqRetry(String message, String path,
       {int maxAttempts = 3}) async {
     int attempt = 0;
     while (attempt < maxAttempts) {
-      print(
-          '[ServerConnection] postReqRetry: attempt=${attempt + 1}/$maxAttempts');
       final resp = await postReq(message, path);
       if (resp is! int || resp == 200) {
-        print('[ServerConnection] postReqRetry: success');
         return resp;
       }
-      // ошибки 5xx / 408 / 524 пробуем ещё раз
+      // Повторяем при ошибках 5xx, 408, 524
       if (resp >= 500 || resp == 408 || resp == 524) {
         attempt++;
-        print('[ServerConnection] postReqRetry: retrying after error $resp');
         if (attempt < maxAttempts) {
-          await Future.delayed(Duration(seconds: 1 << attempt)); // 1,2,4
+          await Future.delayed(Duration(
+              seconds:
+                  AppConfig.serverConnectionExponentialBackoffBase.inSeconds <<
+                      attempt));
           continue;
         }
       }
-      print(
-          '[ServerConnection] postReqRetry: non-retryable or max attempts, resp=$resp');
-      return resp; // статус не требует повторов
+      // Неповторяемые ошибки или достигнут лимит попыток
+      return resp;
     }
-    print(
-        '[ServerConnection] postReqRetry: failed after $maxAttempts attempts');
     return 500;
   }
 
+  /// Отправляет GET-запрос на сервер.
+  ///
+  /// Для пути 'get_db_file' возвращает тело ответа как [Uint8List],
+  /// в остальных случаях - как [String].
   static Future<dynamic> getReq(String path) async {
-    print('[ServerConnection] getReq: path=$path');
     try {
       final res = await http.get(Uri.parse('$_address/$path'));
-      print('[ServerConnection] getReq: statusCode=${res.statusCode}');
       if (res.statusCode == 200) {
         if (path == 'get_db_file') {
-          print('[ServerConnection] getReq: returning bodyBytes');
-          // Return raw bytes for database file
+          // Для файла БД возвращаем байты
           return res.bodyBytes;
         }
-        print('[ServerConnection] getReq: response=${res.body}');
         return res.body.toString();
       } else {
-        print('[ServerConnection] getReq: error statusCode=${res.statusCode}');
         return res.statusCode;
       }
     } catch (e) {
-      print('[ServerConnection] getReq: exception=$e');
       return 500;
     }
   }
 
+  /// Отправляет сообщение через сокет.
   static Future<void> sendMessage(Socket socket, String message) async {
-    print('[ServerConnection] sendMessage: $message');
     socket.write(message);
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(AppConfig.serverConnectionRetryDelay);
   }
 }

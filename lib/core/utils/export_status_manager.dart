@@ -1,17 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-import '../../common/config.dart';
+import 'archive_sync_manager.dart';
 
 class ExportStatusManager {
   static Future<File> _getStatusFile() async {
-    final downloadsDir = await getDownloadsDirectory();
-    final archiveDir =
-        Directory(p.join(downloadsDir!.path, AppConfig.archivesDirName));
-    if (!await archiveDir.exists()) {
-      await archiveDir.create(recursive: true);
-    }
+    final archiveDir = await ArchiveSyncManager.getArchivesDirectory();
     return File(p.join(archiveDir.path, 'export_status.json'));
   }
 

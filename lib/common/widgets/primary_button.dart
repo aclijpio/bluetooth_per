@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/config/app_colors.dart';
-import '../../core/config/app_sizes.dart';
+import 'package:bluetooth_per/common/config.dart';
 
 class PrimaryButton extends StatelessWidget {
   final String label;
@@ -17,21 +16,21 @@ class PrimaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: AppSizes.buttonWidth,
+      width: double.infinity,
       child: ElevatedButton(
         onPressed: enabled ? onPressed : null,
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.buttonText,
-          padding: const EdgeInsets.symmetric(vertical: AppSizes.buttonHeight),
+          backgroundColor: AppConfig.primaryColor,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppSizes.borderRadiusMedium),
+            borderRadius: BorderRadius.circular(12),
           ),
         ),
         child: Text(
           label,
           style: const TextStyle(
-            fontSize: AppSizes.fontXLarge,
+            fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
         ),

@@ -1,22 +1,21 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/material.dart';
 import '../models/device.dart';
 import '../models/archive_entry.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
 
-// Base class for all states.
-abstract class DeviceFlowState extends Equatable {
-  const DeviceFlowState();
+abstract class TransferState extends Equatable {
+  const TransferState();
 
   @override
   List<Object?> get props => [];
 }
 
-// 1) Initial screen where user can start searching for devices.
-class InitialSearchState extends DeviceFlowState {
+class InitialSearchState extends TransferState {
   const InitialSearchState();
 }
 
-class PendingArchivesState extends DeviceFlowState {
+class PendingArchivesState extends TransferState {
   final List<String> dbPaths;
   const PendingArchivesState(this.dbPaths);
 
@@ -24,11 +23,11 @@ class PendingArchivesState extends DeviceFlowState {
   List<Object?> get props => [dbPaths];
 }
 
-class SearchingState extends DeviceFlowState {
+class SearchingState extends TransferState {
   const SearchingState();
 }
 
-class SearchingStateWithDevices extends DeviceFlowState {
+class SearchingStateWithDevices extends TransferState {
   final List<Device> devices;
   const SearchingStateWithDevices(this.devices);
 
@@ -36,7 +35,7 @@ class SearchingStateWithDevices extends DeviceFlowState {
   List<Object?> get props => [devices];
 }
 
-class DeviceListState extends DeviceFlowState {
+class DeviceListState extends TransferState {
   final List<Device> devices;
   const DeviceListState(this.devices);
 
@@ -44,7 +43,7 @@ class DeviceListState extends DeviceFlowState {
   List<Object?> get props => [devices];
 }
 
-class ConnectedState extends DeviceFlowState {
+class ConnectedState extends TransferState {
   final Device connectedDevice;
   final List<ArchiveEntry> archives;
   const ConnectedState({required this.connectedDevice, required this.archives});
@@ -53,11 +52,10 @@ class ConnectedState extends DeviceFlowState {
   List<Object?> get props => [connectedDevice, archives];
 }
 
-class DownloadingState extends DeviceFlowState {
+class DownloadingState extends TransferState {
   final Device connectedDevice;
   final ArchiveEntry entry;
 
-  /// Progress from 0.0 .. 1.0
   final double progress;
 
   final String speedLabel;
@@ -80,8 +78,7 @@ class DownloadingState extends DeviceFlowState {
       [connectedDevice, entry, progress, speedLabel, fileSize, elapsedTime];
 }
 
-// 6) Table view with downloaded data (web-service like table).
-class TableViewState extends DeviceFlowState {
+class TableViewState extends TransferState {
   final Device connectedDevice;
   final ArchiveEntry entry;
   final List<dynamic> rows;
@@ -102,7 +99,6 @@ class TableViewState extends DeviceFlowState {
       [connectedDevice, entry, rows, operations, isLoading, disabled];
 }
 
-// Helper model for table rows.
 class TableRowData extends Equatable {
   final DateTime date;
   final String wellId;
@@ -112,8 +108,7 @@ class TableRowData extends Equatable {
   List<Object?> get props => [date, wellId];
 }
 
-// uploading db to server
-class UploadingState extends DeviceFlowState {
+class UploadingState extends TransferState {
   final Device connectedDevice;
   const UploadingState(this.connectedDevice);
 
@@ -121,8 +116,7 @@ class UploadingState extends DeviceFlowState {
   List<Object?> get props => [connectedDevice];
 }
 
-// server refreshing archive
-class RefreshingState extends DeviceFlowState {
+class RefreshingState extends TransferState {
   final Device connectedDevice;
   const RefreshingState(this.connectedDevice);
 
@@ -130,25 +124,26 @@ class RefreshingState extends DeviceFlowState {
   List<Object?> get props => [connectedDevice];
 }
 
-// Экспорт в процессе
-class ExportingState extends DeviceFlowState {
-  final double progress; // 0..1
+class ExportingState extends TransferState {
+  final double progress;
   final ArchiveEntry entry;
   final Device connectedDevice;
+  final int? currentExportingOperationDt;
   const ExportingState(this.progress,
-      {required this.entry, required this.connectedDevice});
+      {required this.entry,
+      required this.connectedDevice,
+      this.currentExportingOperationDt});
 
   @override
-  List<Object?> get props => [progress, entry, connectedDevice];
+  List<Object?> get props =>
+      [progress, entry, connectedDevice, currentExportingOperationDt];
 }
 
-// Экспорт завершился успешно
-class ExportSuccessState extends DeviceFlowState {
+class ExportSuccessState extends TransferState {
   const ExportSuccessState();
 }
 
-// Ошибка базы данных
-class DbErrorState extends DeviceFlowState {
+class DbErrorState extends TransferState {
   final String message;
   const DbErrorState(this.message);
 
@@ -156,8 +151,7 @@ class DbErrorState extends DeviceFlowState {
   List<Object?> get props => [message];
 }
 
-// Нет интернета – архив сохранён локально
-class NetErrorState extends DeviceFlowState {
+class NetErrorState extends TransferState {
   final String dbPath;
   const NetErrorState(this.dbPath);
 
@@ -165,7 +159,21 @@ class NetErrorState extends DeviceFlowState {
   List<Object?> get props => [dbPath];
 }
 
-// Bluetooth выключен
-class BluetoothDisabledState extends DeviceFlowState {
+class BluetoothDisabledState extends TransferState {
   const BluetoothDisabledState();
+}
+
+class InfoMessageState extends TransferState {
+  final Widget content;
+  final VoidCallback onButtonPressed;
+  final String buttonText;
+
+  const InfoMessageState({
+    required this.content,
+    required this.onButtonPressed,
+    this.buttonText = 'ОК',
+  });
+
+  @override
+  List<Object?> get props => [content, onButtonPressed, buttonText];
 }

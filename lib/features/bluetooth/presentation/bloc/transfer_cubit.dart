@@ -1,6 +1,8 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/material.dart';
+import 'package:bluetooth_per/common/config.dart';
 import '../../../../core/data/main_data.dart';
-import 'device_flow_state.dart';
+import 'transfer_state.dart';
 import '../models/device.dart';
 import '../models/archive_entry.dart';
 import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
@@ -8,17 +10,14 @@ import 'package:bluetooth_per/features/bluetooth/domain/entities/bluetooth_devic
 import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
 import 'package:bluetooth_per/core/utils/export_status_manager.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
-import '../../../../core/config/app_strings.dart';
-import '../../../../core/config/app_timeouts.dart';
-import '../../../../core/utils/app_logger.dart';
 
-class DeviceFlowCubit extends Cubit<DeviceFlowState> {
+class TransferCubit extends Cubit<TransferState> {
   final BluetoothRepository _repository;
   final MainData _mainData;
   final List<Device> _lastFoundDevices = [];
   bool _searching = false;
 
-  DeviceFlowCubit(this._repository, this._mainData)
+  TransferCubit(this._repository, this._mainData)
       : super(const InitialSearchState()) {
     _loadPending();
   }
@@ -32,7 +31,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     }
   }
 
-  // Helper: convert bytes/sec to human-readable label.
   String _formatSpeed(double bytesPerSec) {
     if (bytesPerSec < 1024) {
       return '${bytesPerSec.toStringAsFixed(0)} B/s';
@@ -49,32 +47,24 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
   Device _toUi(BluetoothDeviceEntity e) =>
       Device(name: e.name ?? '', macAddress: e.address);
 
-  // Enable Bluetooth and start scanning
-  Future<void> enableBluetoothAndScan() async {
-    AppLogger.deviceFlow('enableBluetoothAndScan: requesting Bluetooth enable');
-    emit(const SearchingState());
+  Future<void> enableBluetooth() async {
+    _loadPending();
 
     final enableResult = await _repository.enableBluetooth();
     enableResult.fold(
       (failure) {
-        AppLogger.deviceFlow('enableBluetoothAndScan: failed to enable Bluetooth - ${failure.message}');
         if (failure.message.contains('отклонил')) {
-          // Пользователь отказался включить Bluetooth
           emit(const BluetoothDisabledState());
         } else {
-          // Другая ошибка
           emit(const BluetoothDisabledState());
         }
       },
       (success) {
-        AppLogger.deviceFlow('enableBluetoothAndScan: Bluetooth enabled, starting scan');
-        // После включения Bluetooth сразу начинаем поиск
-        startScanning();
+        _loadPending();
       },
     );
   }
 
-  // Start scanning for Bluetooth devices using the repository.
   Future<void> startScanning() async {
     _searching = true;
     emit(const SearchingState());
@@ -96,7 +86,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         if (!_searching || _isActiveState()) return;
         _searching = false;
 
-        // Показываем пользователю понятное сообщение об ошибке
         if (failure.message == 'BLUETOOTH_DISABLED') {
           emit(const BluetoothDisabledState());
         } else if (failure.message.contains('разрешение')) {
@@ -105,7 +94,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         }
       },
       (entities) {
-        // Не меняем состояние, если поиск уже остановлен или идут активные операции
         if (!_searching || _isActiveState()) return;
         final devices = entities.map(_toUi).toList();
         _lastFoundDevices.clear();
@@ -120,7 +108,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     );
   }
 
-  // Проверяет, находится ли cubit в активном состоянии (подключение/скачивание/таблица)
   bool _isActiveState() {
     return state is UploadingState ||
         state is RefreshingState ||
@@ -136,64 +123,98 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
   Future<void> connectToDevice(Device device) async {
     _searching = false;
     _repository.cancelScan();
-    AppLogger.deviceFlow('connectToDevice: ${device.name} (${device.macAddress})');
     emit(UploadingState(device));
 
     try {
       final connectRes = await _repository
           .connectToDevice(_toEntity(device))
-          .timeout(AppTimeouts.bluetoothConnectionTimeout);
+          .timeout(AppConfig.deviceFlowTimeout);
 
       bool connected = false;
       connectRes.fold(
         (failure) {
-          AppLogger.deviceFlow('connectToDevice: failure=$failure');
           emit(DeviceListState(_lastFoundDevices));
         },
         (_) {
-          AppLogger.deviceFlow('connectToDevice: success');
           connected = true;
         },
       );
 
       if (!connected) return;
 
-      // Timeout на обновление архива (60 секунд)
-      await for (final status in _repository.requestArchiveUpdate()) {
-        AppLogger.deviceFlow('connectToDevice: archive update status=$status');
-        if (status == 'ARCHIVE_UPDATING') {
-          emit(RefreshingState(device));
-        } else if (status == 'ARCHIVE_READY') {
-          break;
+      try {
+        await for (final status in _repository.requestArchiveUpdate().timeout(
+          AppConfig.deviceFlowTimeout,
+          onTimeout: (sink) {
+            sink.close();
+          },
+        )) {
+          if (status == 'ARCHIVE_UPDATING') {
+            emit(RefreshingState(device));
+          } else if (status == 'ARCHIVE_READY') {
+            break;
+          }
         }
+      } catch (e) {
+        emit(InfoMessageState(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.bluetooth_disabled,
+                size: 64,
+                color: Colors.orange.withOpacity(0.7),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Нет ответа от Bluetooth сервера',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: AppConfig.secondaryTextColor,
+                  fontWeight: FontWeight.w500,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Проверьте, запущен ли ТМС на подключаемом устройстве',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppConfig.tertiaryTextColor,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+          onButtonPressed: () {
+            emit(DeviceListState(_lastFoundDevices));
+          },
+        ));
+        return;
       }
 
-      final listRes = await _repository.getReadyArchive().timeout(AppTimeouts.archiveReadyTimeout);
+      final listRes = await _repository
+          .getReadyArchive()
+          .timeout(AppConfig.readyArchiveTimeout);
 
       listRes.fold(
         (failure) {
-          AppLogger.deviceFlow('connectToDevice: getFileList failure=$failure');
           emit(DeviceListState(_lastFoundDevices));
         },
         (fileNames) {
           final archives = fileNames
               .map((f) => ArchiveEntry(fileName: f, sizeBytes: 0))
               .toList();
-          AppLogger.deviceFlow('connectToDevice: got ${archives.length} archives');
           emit(ConnectedState(connectedDevice: device, archives: archives));
         },
       );
     } catch (e) {
-      AppLogger.deviceFlow('connectToDevice: timeout or error=$e');
       emit(DeviceListState(_lastFoundDevices));
     }
   }
 
-  // Download selected archive using repository and update UI with progress.
   Future<void> downloadArchive(ArchiveEntry entry) async {
-    AppLogger.deviceFlow('downloadArchive: ${entry.fileName}');
     if (state is! ConnectedState) {
-      AppLogger.deviceFlow('downloadArchive: not in ConnectedState, current=$state');
       return;
     }
 
@@ -231,7 +252,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         ));
       },
       onComplete: (filePath) async {
-        AppLogger.deviceFlow('downloadArchive: onComplete filePath=$filePath');
         await _handleDownloadedDb(filePath, entry, connectedDevice);
       },
     );
@@ -244,14 +264,11 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     );
   }
 
-  // Process downloaded SQLite database and show table.
   Future<void> _handleDownloadedDb(
       String filePath, ArchiveEntry entry, Device connectedDevice) async {
-    AppLogger.deviceFlow('_handleDownloadedDb: filePath=$filePath');
     _mainData.dbPath = filePath;
     _mainData.resetOperationData();
 
-    // Сразу показываем таблицу с isLoading=true
     emit(TableViewState(
       connectedDevice: connectedDevice,
       entry: entry,
@@ -261,19 +278,17 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     ));
 
     final localStatus = await _mainData.awaitOperations();
-    print(
-        '[DeviceFlowCubit] _handleDownloadedDb: awaitOperations status = $localStatus');
 
     if (localStatus == OperStatus.dbError) {
-      emit(const DbErrorState(AppStrings.databaseError));
+      emit(const DbErrorState('Файл не является базой данных или повреждён.'));
       return;
     }
     if (localStatus == OperStatus.filePathError) {
-      emit(const DbErrorState(AppStrings.filePathError));
+      emit(const DbErrorState('Не выбран файл базы данных.'));
       return;
     }
     if (localStatus != OperStatus.ok) {
-      emit(const DbErrorState(AppStrings.unknownDatabaseError));
+      emit(const DbErrorState('Неизвестная ошибка при открытии базы данных.'));
       return;
     }
 
@@ -284,7 +299,8 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     final netStatus = await _mainData.awaitOperationsCanSendStatus();
 
     final filteredOps = _mainData.operations
-        .where((op) => op.canSend == true || op.exported == true)
+        .where((op) =>
+            (op.canSend == true || op.exported == true))
         .toList();
     final rows = filteredOps.map((op) {
       final dt = DateTime.fromMillisecondsSinceEpoch(op.dt * 1000);
@@ -292,8 +308,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       return TableRowData(date: dt, wellId: wellId);
     }).toList();
 
-    print(
-        '[DeviceFlowCubit] _handleDownloadedDb: emitting TableViewState with \x1b[32m${rows.length}\x1b[0m rows');
     emit(TableViewState(
       connectedDevice: connectedDevice,
       entry: entry,
@@ -302,31 +316,23 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       isLoading: false,
     ));
 
-    // Обновляем таблицу после синхронизации с сервером
     notifyTableChanged();
 
     if (netStatus != OperStatus.ok) {
-      // Нет сети – помечаем архив как «ожидающий» и показываем ошибку, но таблица уже показана
-      print(
-          '[DeviceFlowCubit] _handleDownloadedDb: netStatus not ok, marking as pending');
       await ArchiveSyncManager.addPending(filePath);
       emit(NetErrorState(filePath));
     }
   }
 
-  // Reset to initial.
   void reset() {
     _searching = false;
-    print('[DeviceFlowCubit] reset called');
     _loadPending();
   }
 
-  /// Загружает локальный архив без подключения к устройству.
   Future<void> loadLocalArchive(String dbPath) async {
     _mainData.dbPath = dbPath;
     _mainData.resetOperationData();
 
-    // Сразу показываем таблицу с isLoading=true
     emit(TableViewState(
       connectedDevice: Device(name: 'Local', macAddress: ''),
       entry: ArchiveEntry(fileName: dbPath, sizeBytes: 0),
@@ -372,7 +378,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       isLoading: false,
     ));
 
-    // Обновляем таблицу после синхронизации с сервером
     notifyTableChanged();
 
     if (netStatus != OperStatus.ok) {
@@ -380,12 +385,10 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     }
   }
 
-  /// Экспорт отмеченных операций на сервер соStatus
   Future<void> exportSelected(
       {void Function(double progress)? onProgress,
       void Function()? onFinish}) async {
     if (state is! TableViewState) {
-      print('[exportSelected] Not in TableViewState, current: $state');
       return;
     }
 
@@ -396,10 +399,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
     final selected =
         _mainData.operations.where((op) => op.selected && op.canSend).toList();
-
-/*     for (final op in selected) {
-      await _mainData.awaitOperationPoints(op);
-    } */
 
     if (selected.isEmpty) {
       emit(TableViewState(
@@ -412,19 +411,14 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       return;
     }
 
-    int done = 0;
     bool hasSuccess = false;
-    print('[exportSelected] Start export loop');
 
     final archiveFileName = _mainData.dbPath.split('/').last;
     final exportedOps = <int>[];
 
-    // --- Новый прогресс по точкам операций ---
     final totalPoints =
         selected.fold<int>(0, (sum, op) => sum + op.points.length);
     int exportedPoints = 0;
-    print('[exportSelected] totalPoints = '
-        '\x1b[32m$totalPoints\u001b[0m');
 
     emit(ExportingState(0, entry: entry, connectedDevice: connectedDevice));
 
@@ -449,17 +443,27 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
             )
               ..selected = op.selected
               ..canSend = op.canSend
-              ..checkError = false)
+              ..checkError = op.checkError
+              ..exported = op.exported
+              ..unavailable = op.unavailable
+              ..errorCode = op.errorCode)
         .toList();
 
     for (int i = 0; i < selected.length; i++) {
       final op = selected[i];
+
+      emit(ExportingState(
+        totalPoints == 0 ? 0.0 : exportedPoints / totalPoints,
+        entry: entry,
+        connectedDevice: connectedDevice,
+        currentExportingOperationDt: op.dt,
+      ));
+
       final code = await _mainData.awaitSendingOperation(op);
       final idx = currentOps.indexWhere((o) => o.dt == op.dt);
       if (idx != -1) {
         if (code == 200) {
           hasSuccess = true;
-          done++;
           currentOps[idx] = Operation(
             dt: op.dt,
             dtStop: op.dtStop,
@@ -519,9 +523,9 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         prog,
         entry: entry,
         connectedDevice: connectedDevice,
+        currentExportingOperationDt: op.dt,
       ));
-      if (onProgress != null) onProgress(prog);
-      // Обновляем таблицу после каждой операции, но блокируем UI
+      onProgress?.call(prog);
       emit(TableViewState(
         connectedDevice: connectedDevice,
         entry: entry,
@@ -531,7 +535,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         disabled: true,
       ));
     }
-    // После завершения экспорта — разблокируем UI
     emit(TableViewState(
       connectedDevice: connectedDevice,
       entry: entry,
@@ -540,8 +543,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       isLoading: false,
       disabled: false,
     ));
-    onProgress!(0);
-    // После экспорта обновляем основной список операций
+    onProgress?.call(0);
     _mainData.operations
       ..clear()
       ..addAll(currentOps);
@@ -557,7 +559,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
           archiveFileName, 'partial', allOpDts);
     }
 
-    // Сбросить прогресс
     emit(TableViewState(
       connectedDevice: connectedDevice,
       entry: entry,
@@ -565,10 +566,9 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       operations: currentOps,
       isLoading: false,
     ));
-    // Обновляем таблицу после экспорта
     notifyTableChanged();
 
-    if (onFinish != null) onFinish();
+    onFinish?.call();
   }
 
   void notifyTableChanged() {
@@ -619,11 +619,8 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     emit(DeviceListState(List<Device>.from(_lastFoundDevices)));
   }
 
-  // Удаляет архив из списка ожидающих экспорта
   Future<void> deletePendingArchive(String path) async {
-    print('[DeviceFlowCubit] deletePendingArchive: $path');
     await ArchiveSyncManager.deletePending(path);
-    // Перезагружаем список ожидающих архивов
     await _loadPending();
   }
 }

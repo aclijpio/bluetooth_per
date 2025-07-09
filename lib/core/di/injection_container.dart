@@ -6,8 +6,7 @@ import 'package:logger/logger.dart';
 import '../../features/bluetooth/data/repositories/bluetooth_repository_impl.dart';
 import '../../features/bluetooth/data/transport/bluetooth_transport.dart';
 import '../../features/bluetooth/domain/repositories/bluetooth_repository.dart';
-
-import '../../features/bluetooth/presentation/bloc/device_flow_cubit.dart';
+import '../../features/bluetooth/presentation/bloc/transfer_cubit.dart';
 import '../../common/bloc/operation_sending_cubit.dart';
 import '../../core/utils/archive_sync_manager.dart';
 import '../../core/utils/export_status_manager.dart';
@@ -15,16 +14,12 @@ import '../../core/utils/export_status_manager.dart';
 final sl = GetIt.instance;
 
 Future<void> init() async {
-  // Core - Utils
   _registerUtils();
 
-  // Core - Data
   _registerData();
 
-  // External Dependencies
   _registerExternalDependencies();
 
-  // Features - Bluetooth
   _registerBluetooth();
 }
 
@@ -50,10 +45,8 @@ void _registerExternalDependencies() {
 }
 
 void _registerBluetooth() {
-  // Transport layer
   sl.registerLazySingleton(() => BluetoothTransport(sl()));
 
-  // Repository layer
   sl.registerLazySingleton<BluetoothRepository>(
     () => BluetoothRepositoryImpl(
       sl<BluetoothTransport>(),
@@ -61,9 +54,8 @@ void _registerBluetooth() {
     ),
   );
 
-  // BLoC layer
   sl.registerFactory(
-    () => DeviceFlowCubit(
+    () => TransferCubit(
       sl<BluetoothRepository>(),
       sl<MainData>(),
     ),

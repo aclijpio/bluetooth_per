@@ -9,3 +9,4 @@ class ArchiveEntry extends Equatable {
   @override
   List<Object?> get props => [fileName, sizeBytes];
 }
+

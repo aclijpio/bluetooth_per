@@ -10,18 +10,23 @@ import 'server_connection.dart';
 class WebLayer {
   static const String constUuid = AppConfig.webUUID;
 
-  static Future<OperListResponse> exportOperList( String serial, List<Operation> operations) async {
+  static Future<OperListResponse> exportOperList(
+      String serial, List<Operation> operations) async {
     Map<String, dynamic> request = {
       "serial": serial,
       "uuid": constUuid,
-      "operations": operations.map((e) => e.dtAndCount()).toList(),
+      "operations": operations
+          .where((op) => op
+              .points.isNotEmpty)
+          .map((e) => e.dtAndCount())
+          .toList(),
     };
 
     String reqStr = json.encode(request);
     print('[WebLayer] exportOperList: request=$reqStr');
     dynamic response =
         await ServerConnection.postReq(reqStr, 'get_archive_list')
-            .timeout(const Duration(seconds: 15), onTimeout: () {
+            .timeout(AppConfig.webRequestTimeout, onTimeout: () {
       return 408;
     });
 
@@ -47,7 +52,7 @@ class WebLayer {
     String reqStr = json.encode(request);
     dynamic response =
         await ServerConnection.postReqRetry(reqStr, 'send_archive')
-            .timeout(const Duration(seconds: 100040), onTimeout: () {
+            .timeout(AppConfig.longRequestTimeout, onTimeout: () {
       return 408;
     });
 
@@ -57,6 +62,7 @@ class WebLayer {
       return 200;
     }
   }
+
   static Future<int> exportOperDataWithProgress(
       String serial, Operation op, void Function(double) onProgress) async {
     Map<String, dynamic> request = {

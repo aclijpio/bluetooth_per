@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:bluetooth_per/common/config.dart';
 
 import '../../../../core/data/main_data.dart';
 import '../models/archive_entry.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
-import '../bloc/device_flow_cubit.dart';
-import '../bloc/device_flow_state.dart';
+import '../bloc/transfer_cubit.dart';
+import '../bloc/transfer_state.dart';
 import 'package:bluetooth_per/common/widgets/progress_bar.dart';
 
 class ArchiveTable extends StatelessWidget {
@@ -26,12 +27,11 @@ class ArchiveTable extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Info container
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: const Color(0xFFE7F2FA),
-            borderRadius: BorderRadius.circular(27),
+            color: AppConfig.cardBackgroundColor,
+            borderRadius: AppConfig.largeBorderRadius,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,7 +45,7 @@ class ArchiveTable extends StatelessWidget {
                 'Гос номер: ${context.read<MainData>().deviceInfo.gosNum}',
                 style: const TextStyle(fontSize: 18),
               ),
-              BlocBuilder<DeviceFlowCubit, DeviceFlowState>(
+              BlocBuilder<TransferCubit, TransferState>(
                 builder: (context, state) {
                   final hasError = operations.isNotEmpty &&
                       operations.every((op) => op.unavailable || op.checkError);
@@ -54,7 +54,8 @@ class ArchiveTable extends StatelessWidget {
                       padding: EdgeInsets.only(top: 5.0),
                       child: Text(
                         'Нет связи с сервером.',
-                        style: TextStyle(color: Colors.red, fontSize: 16),
+                        style: TextStyle(
+                            color: AppConfig.errorColor, fontSize: 16),
                       ),
                     );
                   }
@@ -67,7 +68,7 @@ class ArchiveTable extends StatelessWidget {
         const SizedBox(height: 20),
         // Header with checkbox
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           child: Row(
             children: [
               _checkbox(
@@ -104,7 +105,7 @@ class ArchiveTable extends StatelessWidget {
                         }).toList();
                         onSelectionChanged
                             ?.call(updatedOps.any((op) => op.selected));
-                        BlocProvider.of<DeviceFlowCubit>(context)
+                        BlocProvider.of<TransferCubit>(context)
                             .updateOperations(updatedOps);
                       }
                     : null,
@@ -121,7 +122,7 @@ class ArchiveTable extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w500,
-                          color: Color(0xFF222222),
+                          color: AppConfig.primaryTextColor,
                         ),
                       ),
                     ),
@@ -133,7 +134,7 @@ class ArchiveTable extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w500,
-                          color: Color(0xFF222222),
+                          color: AppConfig.primaryTextColor,
                         ),
                       ),
                     ),
@@ -155,7 +156,7 @@ class ArchiveTable extends StatelessWidget {
               final op = operations[index];
               return Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
+                  horizontal: 10,
                   vertical: 20,
                 ),
                 child: Row(
@@ -197,7 +198,7 @@ class ArchiveTable extends StatelessWidget {
                         }).toList();
                         onSelectionChanged
                             ?.call(updatedOps.any((e) => e.selected));
-                        BlocProvider.of<DeviceFlowCubit>(context)
+                        BlocProvider.of<TransferCubit>(context)
                             .updateOperations(updatedOps);
                       },
                       enabled: checkboxesEnabled &&
@@ -216,7 +217,7 @@ class ArchiveTable extends StatelessWidget {
                                   op.dt * 1000)),
                               style: const TextStyle(
                                 fontSize: 14,
-                                color: Color(0xFF484848),
+                                color: AppConfig.tableTextColor,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -228,14 +229,20 @@ class ArchiveTable extends StatelessWidget {
                               textAlign: TextAlign.right,
                               style: const TextStyle(
                                 fontSize: 14,
-                                color: Color(0xFF484848),
+                                color: AppConfig.tableTextColor,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ),
+
                           SizedBox(
                             width: 40,
-                            child: _buildExportStatus(op),
+                            height: 25,
+                            child: BlocBuilder<TransferCubit, TransferState>(
+                              builder: (context, state) {
+                                return _buildExportStatus(op, state);
+                              },
+                            ),
                           ),
                         ],
                       ),
@@ -272,8 +279,23 @@ class ArchiveTable extends StatelessWidget {
     return ops.every((op) => op.selected);
   }
 
-  Widget _buildExportStatus(Operation op) {
-    if (op.exported) {
+  Widget _buildExportStatus(Operation op, TransferState state) {
+    if (state is ExportingState && state.currentExportingOperationDt == op.dt) {
+      return Tooltip(
+        message: 'Операция экспортируется',
+        child: Center(
+          child: SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: AppConfig.primaryColor,
+            ),
+          ),
+        ),
+        triggerMode: TooltipTriggerMode.tap,
+      );
+    } else if (op.exported) {
       return Tooltip(
         message: 'Операция успешно экспортирована',
         child: Icon(Icons.check_circle, color: Colors.green, size: 22),

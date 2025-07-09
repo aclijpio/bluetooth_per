@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:bluetooth_per/common/config.dart';
 import '../models/device.dart';
 
 class DeviceTile extends StatelessWidget {
@@ -10,13 +11,13 @@ class DeviceTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(27),
+      borderRadius: AppConfig.largeBorderRadius,
       child: Container(
         height: 60,
         padding: const EdgeInsets.symmetric(horizontal: 30),
         decoration: BoxDecoration(
-          color: const Color(0xFFE7F2FA),
-          borderRadius: BorderRadius.circular(27),
+          color: AppConfig.cardBackgroundColor,
+          borderRadius: AppConfig.largeBorderRadius,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -27,10 +28,10 @@ class DeviceTile extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w500,
-                color: Color(0xFF222222),
+                color: AppConfig.primaryTextColor,
               ),
             ),
-            const Icon(Icons.arrow_forward, color: Color(0xFF0B78CC)),
+            const Icon(Icons.arrow_forward, color: AppConfig.primaryColor),
           ],
         ),
       ),

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:async';
-import 'package:flutter/scheduler.dart';
 import 'dart:io';
 
-import '../bloc/device_flow_cubit.dart';
-import '../bloc/device_flow_state.dart';
+import 'package:bluetooth_per/common/config.dart';
+import '../bloc/transfer_cubit.dart';
+import '../bloc/transfer_state.dart';
 import '../widgets/device_tile.dart';
 import '../widgets/archive_table.dart';
 import '../models/device.dart';
@@ -19,6 +19,13 @@ import 'package:bluetooth_per/common/widgets/progress_bar.dart';
 import '../bloc/export_progress_cubit.dart';
 import 'package:bluetooth_per/common/widgets/app_header.dart';
 import 'package:bluetooth_per/core/di/injection_container.dart' as di;
+import '../widgets/flow/searching_body.dart';
+import '../widgets/flow/device_list_body.dart';
+import '../widgets/flow/connected_body.dart';
+import '../widgets/flow/downloading_body.dart';
+import '../widgets/flow/pending_archives_body.dart';
+import '../widgets/flow/connected_device_card.dart';
+import '../widgets/flow/info_message_body.dart';
 
 class DeviceFlowScreen extends StatelessWidget {
   @override
@@ -45,7 +52,7 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener<DeviceFlowCubit, DeviceFlowState>(
+    return BlocListener<TransferCubit, TransferState>(
       listener: (context, state) {
         if (_exportDialogShown &&
             (state is ExportSuccessState || state is TableViewState)) {
@@ -59,7 +66,7 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
           _exportError = null;
         }
         if (state is ExportSuccessState) {
-          Future.delayed(const Duration(seconds: 1), () {
+          Future.delayed(AppConfig.uiShortDelay, () {
             if (mounted) {
               context.read<ExportProgressCubit>().reset();
             }
@@ -70,11 +77,10 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
         create: (ctx) => di.sl<OperationSendingCubit>(),
         child: Scaffold(
           body: Padding(
-            padding:
-                const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 20),
-            child: BlocBuilder<DeviceFlowCubit, DeviceFlowState>(
+            padding: AppConfig.screenPadding,
+            child: BlocBuilder<TransferCubit, TransferState>(
               builder: (context, state) {
-                final cubit = context.read<DeviceFlowCubit>();
+                final cubit = context.read<TransferCubit>();
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -86,7 +92,7 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                         state is BluetoothDisabledState)
                       MainMenuButton(
                         onPressed: () {
-                          context.read<DeviceFlowCubit>().reset();
+                          context.read<TransferCubit>().reset();
                         },
                         isBlocked:
                             (state is TableViewState && state.isLoading) ||
@@ -96,57 +102,26 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                                 state is DownloadingState ||
                                 state is SearchingStateWithDevices,
                       ),
-                    if (state is SearchingState ||
+                    if (/*state is SearchingState ||*/
                         state is DeviceListState ||
-                        state is SearchingStateWithDevices ||
-                        state is BluetoothDisabledState)
+                            state is SearchingStateWithDevices)
                       const Text(
                         'Устройства',
-                        style: TextStyle(
-                          color: Color(0xFF222222),
-                          fontSize: 24,
-                          fontWeight: FontWeight.w400,
-                        ),
+                        style: AppConfig.titleStyle,
                       ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: AppConfig.spacingMedium),
                     Expanded(child: _buildBody(context, state)),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: AppConfig.spacingMedium),
                     BlocBuilder<OperationSendingCubit, SendingState>(
                       builder: (context, sendState) {
                         if (sendState is ProcessingSendingState) {
                           return Column(
                             children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
-                                      child: LinearProgressIndicator(
-                                        value: sendState.percent,
-                                        minHeight: 16,
-                                        backgroundColor: Colors.grey[300],
-                                        valueColor:
-                                            const AlwaysStoppedAnimation<Color>(
-                                                Color(0xFF0B78CC)),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  SizedBox(
-                                    width: 45,
-                                    child: Text(
-                                      '${(sendState.percent * 100).toStringAsFixed(0)}%',
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                        color: Color(0xFF424242),
-                                      ),
-                                      textAlign: TextAlign.end,
-                                    ),
-                                  ),
-                                ],
+                              ProgressBarWithPercent(
+                                progress: sendState.percent,
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(
+                                  height: AppConfig.spacingExtraSmall),
                               ElevatedButton(
                                 onPressed: () {
                                   context
@@ -160,7 +135,8 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                         } else if (sendState is ErrorSendingState) {
                           return Text(
                               'Ошибка экспорта: код ${sendState.errorCode}',
-                              style: const TextStyle(color: Colors.red));
+                              style:
+                                  const TextStyle(color: AppConfig.errorColor));
                         } else {
                           return const SizedBox.shrink();
                         }
@@ -178,39 +154,42 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
     );
   }
 
-  Widget _buildBody(BuildContext context, DeviceFlowState state) {
+  Widget _buildBody(BuildContext context, TransferState state) {
     if (state is InitialSearchState) {
       return const SizedBox.shrink();
     } else if (state is SearchingState) {
-      return _SearchingBody();
+      return const SearchingBody();
     } else if (state is SearchingStateWithDevices) {
-      return _DeviceListBody(devices: state.devices);
+      return DeviceListBody(devices: state.devices);
     } else if (state is DeviceListState) {
-      return _DeviceListBody(devices: state.devices);
+      return DeviceListBody(devices: state.devices);
     } else if (state is ConnectedState) {
-      return _ConnectedBody(state: state);
+      return ConnectedBody(state: state);
     } else if (state is UploadingState) {
-      return _StatusBody(
-        device: state.connectedDevice,
-        text: 'Запрос на обновление архива...',
+      return ConnectedDeviceCard(
+        name: state.connectedDevice.name.replaceAll("Quantor", ""),
+        macAddress: state.connectedDevice.macAddress,
       );
     } else if (state is RefreshingState) {
-      return _StatusBody(
-        device: state.connectedDevice,
-        text: 'Архив обновляется...',
+      return ConnectedDeviceCard(
+        name: state.connectedDevice.name.replaceAll("Quantor", ""),
+        macAddress: state.connectedDevice.macAddress,
       );
     } else if (state is DownloadingState) {
-      return _DownloadingBody(state: state);
+      return DownloadingBody(state: state);
     } else if (state is TableViewState || state is ExportingState) {
       final mainData = context.read<MainData>();
       final displayName = ArchiveSyncManager.getDisplayName(
           state is TableViewState
               ? state.entry.fileName
               : (state as ExportingState).entry.fileName);
+
       final operations =
           (state is TableViewState) ? state.operations : mainData.operations;
-      final bool checkboxesEnabled =
-          state is TableViewState && !(state).disabled;
+      final bool checkboxesEnabled = (state is TableViewState &&
+          !(state).disabled &&
+          !state.isLoading &&
+          state.operations.isNotEmpty);
 
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -233,24 +212,60 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                   },
                   checkboxesEnabled: checkboxesEnabled,
                 ),
-                if (state is TableViewState && state.isLoading)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 100),
-                    child: Center(
-                      child: SizedBox(
-                        width: 80,
-                        height: 80,
-                        child: CircularProgressIndicator(strokeWidth: 7),
+                if (state is TableViewState) ...[
+                  if (state.isLoading)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 100),
+                      child: Center(
+                        child: SizedBox(
+                          width: 80,
+                          height: 80,
+                          child: CircularProgressIndicator(strokeWidth: 7),
+                        ),
+                      ),
+                    )
+                  else if (state.operations.isEmpty)
+                    Container(
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.sync_disabled,
+                              size: 64,
+                              color: Colors.green.withOpacity(0.7),
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Все операции уже синхронизированы',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: AppConfig.secondaryTextColor,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Нет данных для экспорта',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: AppConfig.tertiaryTextColor,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
+                ],
               ],
             ),
           ),
         ],
       );
     } else if (state is PendingArchivesState) {
-      return _PendingArchivesBody(paths: state.dbPaths);
+      return PendingArchivesBody(paths: state.dbPaths);
     } else if (state is ExportSuccessState) {
       return const SizedBox.shrink();
     } else if (state is NetErrorState) {
@@ -285,17 +300,17 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, color: Colors.red, size: 48),
+            Icon(Icons.error_outline, color: AppConfig.errorColor, size: 48),
             const SizedBox(height: 16),
             Text(
               state.message,
-              style: const TextStyle(color: Colors.red, fontSize: 18),
+              style: const TextStyle(color: AppConfig.errorColor, fontSize: 18),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: () {
-                context.read<DeviceFlowCubit>().reset();
+                context.read<TransferCubit>().reset();
               },
               child: const Text('Назад'),
             ),
@@ -309,34 +324,29 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
           children: [
             Icon(Icons.bluetooth_disabled, color: Colors.blue, size: 64),
             const SizedBox(height: 24),
-            Text(
+            const Text(
               'Bluetooth выключен',
-              style: const TextStyle(
-                color: Color(0xFF222222),
-                fontSize: 24,
-                fontWeight: FontWeight.w600,
-              ),
+              style: AppConfig.screenTitleStyle,
             ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
+            const SizedBox(height: AppConfig.spacingSmall),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 40),
               child: Text(
                 'Для поиска устройств необходимо включить Bluetooth',
-                style: const TextStyle(
-                  color: Color(0xFF666666),
-                  fontSize: 16,
-                ),
+                style: AppConfig.bodyTextStyle,
                 textAlign: TextAlign.center,
               ),
             ),
           ],
         ),
       );
+    } else if (state is InfoMessageState) {
+      return InfoMessageBody(state: state);
     }
     return const SizedBox.shrink();
   }
 
-  Widget _buildBottomButton(DeviceFlowState state, DeviceFlowCubit cubit) {
+  Widget _buildBottomButton(TransferState state, TransferCubit cubit) {
     final exportProgressCubit = context.read<ExportProgressCubit>();
     if (state is InitialSearchState) {
       return PrimaryButton(
@@ -406,14 +416,15 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
             builder: (context, progressState) {
               if (progressState.isExporting) {
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 8, left: 6, right: 6),
+                  padding: const EdgeInsets.only(
+                      bottom: AppConfig.spacingExtraSmall, left: 6, right: 6),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: AppConfig.mediumBorderRadius,
                     child: LinearProgressIndicator(
                       value: progressState.progress,
                       minHeight: 6,
-                      color: const Color(0xFF2E6FED),
-                      backgroundColor: const Color(0xFFC0D5F2),
+                      color: AppConfig.secondaryColor,
+                      backgroundColor: AppConfig.progressBackgroundColor,
                     ),
                   ),
                 );
@@ -427,7 +438,7 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
             onPressed: !disabled && hasSelected
                 ? () {
                     exportProgressCubit.start();
-                    context.read<DeviceFlowCubit>().exportSelected(
+                    context.read<TransferCubit>().exportSelected(
                       onProgress: (progress) {
                         print('PROGRESS: ' + progress.toString());
                         exportProgressCubit.update(progress);
@@ -436,7 +447,7 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                         exportProgressCubit.finish();
                       },
                     );
-                    BlocProvider.of<DeviceFlowCubit>(context)
+                    BlocProvider.of<TransferCubit>(context)
                         .notifyTableChanged();
                   }
                 : null,
@@ -454,14 +465,15 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
           builder: (context, progressState) {
             if (progressState.isExporting) {
               return Padding(
-                padding: const EdgeInsets.only(bottom: 8, left: 6, right: 6),
+                padding: const EdgeInsets.only(
+                    bottom: AppConfig.spacingExtraSmall, left: 6, right: 6),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: AppConfig.mediumBorderRadius,
                   child: LinearProgressIndicator(
                     value: progressState.progress,
                     minHeight: 6,
-                    color: const Color(0xFF2E6FED),
-                    backgroundColor: const Color(0xFFC0D5F2),
+                    color: AppConfig.secondaryColor,
+                    backgroundColor: AppConfig.progressBackgroundColor,
                   ),
                 ),
               );
@@ -479,14 +491,14 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
       return PrimaryButton(
         label: 'На главную',
         onPressed: () {
-          context.read<DeviceFlowCubit>().reset();
+          context.read<TransferCubit>().reset();
         },
       );
     } else if (state is NetErrorState) {
       return PrimaryButton(
         label: 'Запрос',
         onPressed: () async {
-          await context.read<DeviceFlowCubit>().loadLocalArchive(state.dbPath);
+          await context.read<TransferCubit>().loadLocalArchive(state.dbPath);
         },
       );
     } else if (state is BluetoothDisabledState) {
@@ -495,488 +507,22 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
           PrimaryButton(
             label: 'Включить Bluetooth',
             onPressed: () {
-              cubit.enableBluetoothAndScan();
+              cubit.enableBluetooth();
             },
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppConfig.spacingSmall),
           TextButton(
             onPressed: () {
               cubit.startScanning();
             },
             child: const Text(
               'Повторить поиск',
-              style: TextStyle(
-                color: Color(0xFF0B78CC),
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
+              style: AppConfig.buttonTextStyle,
             ),
           ),
         ],
       );
     }
     return const SizedBox.shrink();
-  }
-
-  // --- body widgets ---
-}
-
-class _SearchingBody extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return const Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          'Поиск устройств',
-          style: TextStyle(color: Color(0xFF5F5F5F), fontSize: 24),
-        ),
-        SizedBox(height: 20),
-        SizedBox(width: 40, height: 40, child: CircularProgressIndicator()),
-      ],
-    );
-  }
-}
-
-class _DeviceListBody extends StatelessWidget {
-  final List<Device> devices;
-  const _DeviceListBody({required this.devices});
-
-  @override
-  Widget build(BuildContext context) {
-    final cubit = context.read<DeviceFlowCubit>();
-
-    if (devices.isEmpty) {
-      return const Center(
-        child: Text(
-          'Устройства не обнаружены',
-          style: TextStyle(color: Color(0xFF5F5F5F), fontSize: 24),
-        ),
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          child: ListView.separated(
-            padding: EdgeInsets.zero,
-            itemCount: devices.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (_, index) {
-              final device = devices[index];
-              return DeviceTile(
-                device: device,
-                onTap: () => cubit.connectToDevice(device),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ConnectedBody extends StatelessWidget {
-  final ConnectedState state;
-  const _ConnectedBody({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final cubit = context.read<DeviceFlowCubit>();
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.start,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ConnectedDeviceCard(
-          name: state.connectedDevice.name.replaceAll("Quantor", ""),
-          macAddress: state.connectedDevice.macAddress,
-        ),
-        const SizedBox(height: 40),
-        // Archive label
-        const Text(
-          'Архив',
-          style: TextStyle(
-            color: Color(0xFF222222),
-            fontSize: 24,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 20),
-        ...state.archives.map(
-          (a) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: InkWell(
-              onTap: () => cubit.downloadArchive(a),
-              borderRadius: BorderRadius.circular(27),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 30,
-                  vertical: 24,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE7F2FA),
-                  borderRadius: BorderRadius.circular(27),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ProgressBarWithPercent(progress: 0.0),
-                    SizedBox(height: 20),
-                    Text(
-                      'Размер: -',
-                      style: TextStyle(fontSize: 16, color: Color(0xFF424242)),
-                    ),
-                    Text(
-                      'Время загрузки: -',
-                      style: TextStyle(fontSize: 16, color: Color(0xFF424242)),
-                    ),
-                    Text(
-                      'Скорость: ',
-                      style: TextStyle(fontSize: 16, color: Color(0xFF424242)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DownloadingBody extends StatelessWidget {
-  final DownloadingState state;
-  const _DownloadingBody({required this.state});
-
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    final kb = bytes / 1024;
-    if (kb < 1024) return '${kb.toStringAsFixed(1)} KB';
-    final mb = kb / 1024;
-    return '${mb.toStringAsFixed(2)} MB';
-  }
-
-  String _formatTime(double seconds) {
-    final mins = seconds ~/ 60;
-    final secs = (seconds % 60).toStringAsFixed(1);
-    return mins > 0 ? '$mins мин $secs сек' : '$secs сек';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.start,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ConnectedDeviceCard(
-          name: state.connectedDevice.name.replaceAll("Quantor", ""),
-          macAddress: state.connectedDevice.macAddress,
-        ),
-        const SizedBox(height: 40),
-        // Archive label
-        const Text(
-          'Архив',
-          style: TextStyle(
-            color: Color(0xFF222222),
-            fontSize: 24,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 24),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE7F2FA),
-            borderRadius: BorderRadius.circular(27),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ProgressBarWithPercent(progress: state.progress),
-              const SizedBox(height: 20),
-              Text(
-                'Размер: '
-                '${state.fileSize != null ? _formatSize(state.fileSize!) : '-'}',
-                style: const TextStyle(fontSize: 16, color: Color(0xFF424242)),
-              ),
-              Text(
-                'Время загрузки: '
-                '${state.elapsedTime != null ? _formatTime(state.elapsedTime!) : '-'}',
-                style: const TextStyle(fontSize: 16, color: Color(0xFF424242)),
-              ),
-              Text(
-                'Скорость: ${state.speedLabel}',
-                style: const TextStyle(fontSize: 16, color: Color(0xFF424242)),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusBody extends StatelessWidget {
-  final Device device;
-  final String text;
-  const _StatusBody({required this.device, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ConnectedDeviceCard(
-          name: device.name.replaceAll("Quantor", ""),
-          macAddress: device.macAddress,
-        ),
-        const SizedBox(height: 40),
-      ],
-    );
-  }
-}
-
-class ArchiveTile extends StatelessWidget {
-  final String name;
-  final String date;
-  final VoidCallback? onTap;
-  final VoidCallback? onLongPress;
-  const ArchiveTile({
-    super.key,
-    required this.name,
-    required this.date,
-    this.onTap,
-    this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      borderRadius: BorderRadius.circular(27),
-      child: Container(
-        height: 60,
-        padding: const EdgeInsets.symmetric(horizontal: 30),
-        decoration: BoxDecoration(
-          color: const Color(0xFFE7F2FA),
-          borderRadius: BorderRadius.circular(27),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Icon(Icons.archive_outlined,
-                color: Color(0xFF0B78CC), size: 28),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF222222),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    date,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF5F5F5F),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.arrow_forward, color: Color(0xFF0B78CC)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PendingArchivesBody extends StatelessWidget {
-  final List<String> paths;
-  const _PendingArchivesBody({required this.paths});
-
-  Future<String> _getArchiveDate(String path) async {
-    // Пробуем найти дату в имени файла
-    final dateMatch = RegExp(r'(\d{4}-\d{2}-\d{2})').firstMatch(path);
-    if (dateMatch != null) {
-      return dateMatch.group(1)!;
-    }
-    // Если не нашли — берём дату изменения файла
-    try {
-      final file = File(path);
-      final modified = await file.lastModified();
-      return '${modified.year}-${modified.month.toString().padLeft(2, '0')}-${modified.day.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return '';
-    }
-  }
-
-  Future<void> _showDeleteDialog(
-      BuildContext context, String path, String displayName) async {
-    final cubit = context.read<DeviceFlowCubit>();
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: const Text(
-            'Удалить архив?',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Вы действительно хотите удалить архив "$displayName" из списка неотправленных?',
-                style: const TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Это действие нельзя отменить.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.red,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text(
-                'Отмена',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.red,
-              ),
-              child: const Text('Удалить'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (result == true) {
-      await cubit.deletePendingArchive(path);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final displayNames = {
-      for (var p in paths) p: ArchiveSyncManager.getDisplayName(p)
-    };
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Неотправленные архивы',
-          style: TextStyle(
-            color: Color(0xFF222222),
-            fontSize: 24,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Удерживайте архив для удаления',
-          style: TextStyle(
-            color: Color(0xFF5F5F5F),
-            fontSize: 14,
-          ),
-        ),
-        const SizedBox(height: 20),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                ...paths.map(
-                  (p) => FutureBuilder<String>(
-                    future: _getArchiveDate(p),
-                    builder: (context, snapshot) {
-                      final fileName = displayNames[p]!;
-                      final dateStr = snapshot.data ?? '';
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: ArchiveTile(
-                          name: fileName,
-                          date: dateStr,
-                          onTap: () {
-                            final cubit = context.read<DeviceFlowCubit>();
-                            cubit.loadLocalArchive(p);
-                          },
-                          onLongPress: () {
-                            _showDeleteDialog(context, p, fileName);
-                          },
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class ConnectedDeviceCard extends StatelessWidget {
-  final String name;
-  final String macAddress;
-  const ConnectedDeviceCard(
-      {super.key, required this.name, required this.macAddress});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 24),
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFFE7F2FA),
-        borderRadius: BorderRadius.circular(27),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Подключен к: $name',
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w500,
-              color: Color(0xFF222222),
-            ),
-          ),
-/*          const SizedBox(height: 8),
-          Text(
-            macAddress,
-            style: const TextStyle(fontSize: 16, color: Color(0xFF5F5F5F)),
-          ),*/
-        ],
-      ),
-    );
   }
 }
