@@ -141,7 +141,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     emit(UploadingState(device));
 
     try {
-      // Timeout на подключение (30 секунд)
       final connectRes = await _repository
           .connectToDevice(_toEntity(device))
           .timeout(const Duration(seconds: 30));
@@ -171,9 +170,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         }
       }
 
-      // Timeout на получение списка файлов (15 секунд)
-      final listRes =
-          await _repository.getFileList().timeout(const Duration(seconds: 15));
+      final listRes = await _repository.getReadyArchive().timeout(const Duration(seconds: 10));
 
       listRes.fold(
         (failure) {
