@@ -23,7 +23,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   BluetoothConnection? _connection;
   StreamSubscription? _scanSubscription;
   StreamSubscription? _connectionSubscription;
-  List<String> _fileList = [];
   bool _isConnecting = false;
   bool _isConnected = false;
   bool _isCancelled = false;
@@ -43,7 +42,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     try {
       const int maxAttempts = 1;
       const Duration attemptDuration = Duration(seconds: 50);
-      // 10 * 5 = 50 секунд максимум
 
       final found = <BluetoothDeviceEntity>[];
 
@@ -57,12 +55,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           final name = d.name ?? '';
           if (!_quantorNameRegExp.hasMatch(name)) return;
 
-          // сохраняем новое устройство
           if (!found.any((e) => e.address == d.address)) {
             found.add(BluetoothDeviceEntity(address: d.address, name: d.name));
             if (onDeviceFound != null) {
-              onDeviceFound(
-                  BluetoothDeviceEntity(address: d.address, name: d.name));
+              onDeviceFound(BluetoothDeviceEntity(address: d.address, name: d.name));
             }
           }
 
@@ -74,7 +70,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
         _flutterBlueClassic.startScan();
 
-        // ждём либо находку, либо таймаут 5 cек
         await Future.any([
           completer.future,
           Future.delayed(attemptDuration),
@@ -83,12 +78,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         _flutterBlueClassic.stopScan();
         await _scanSubscription?.cancel();
 
-        if (found.isNotEmpty) break; // успех
+        if (found.isNotEmpty) break;
 
-        // небольшая пауза перед следующей попыткой
         await Future.delayed(const Duration(seconds: 1));
       }
-
       return Right(found);
     } catch (e) {
       return Left(BluetoothFailure(message: e.toString()));
@@ -97,11 +90,9 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
   Future<BluetoothConnection> _connectToDevice(
       BluetoothDeviceEntity device) async {
-    print('Connecting to device: [36m${device.address}[0m');
     BluetoothConnection? connection;
     int attempts = 0;
     const maxAttempts = 10;
-    // Несколько попыток подключения
     final completer = Completer<BluetoothConnection?>();
     Timer? timeoutTimer;
     bool finished = false;
@@ -159,7 +150,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   Future<Either<Failure, bool>> connectToDevice(
       BluetoothDeviceEntity device) async {
     if (_isConnecting) {
-      print('Already connecting to a device');
       return Left(ConnectionFailure(message: 'Connection in progress'));
     }
 
@@ -168,7 +158,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       _connection = await _connectToDevice(device);
 
       if (_connection != null && _connection!.isConnected) {
-        print('Connection established successfully');
         _isConnecting = false;
         _isConnected = true;
         return const Right(true);
@@ -268,17 +257,13 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
       final directory = await getApplicationDocumentsDirectory();
 
-      // ----------------- Выбираем целевую директорию -----------------
-      // Используем только ArchiveSyncManager.getArchivesDirectory для совместимости с внешней памятью
       final downloadDir = await ArchiveSyncManager.getArchivesDirectory();
       if (!await downloadDir.exists()) {
         await downloadDir.create(recursive: true);
       }
 
-      // Допустим в пути могут быть разделители "/" или "\\".
       final sanitizedFileName = fileName.split(RegExp(r'[\\/]')).last;
 
-      // Получаем имя устройства без "Quantor " и пробелов
       String deviceName = '';
       if (device.name != null) {
         deviceName = device.name!
@@ -286,15 +271,14 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
             .replaceAll(' ', '');
       }
 
-      // Формируем итоговое имя файла: <deviceName>_<fileName>.db.pending (без .gz)
       String baseName = sanitizedFileName.replaceAll(
           RegExp(r'\.gze?$', caseSensitive: false), '');
-      if (!baseName.endsWith(AppConfig.dbExtension))
+      if (!baseName.endsWith(AppConfig.dbExtension)) {
         baseName = '$baseName${AppConfig.dbExtension}';
+      }
       final finalFileName = AppConfig.notExportedFileName(
           deviceName, baseName.replaceAll(AppConfig.dbExtension, ''));
 
-      // --- Гибридная буферизация: память + файл ---
       const int memoryLimit = 124 * 1024 * 1024; // 124 МБ
       BytesBuilder memoryBuffer = BytesBuilder();
       bool switchedToFile = false;
@@ -325,7 +309,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         if (!switchedToFile) {
           memoryBuffer.add(data);
           if (memoryBuffer.length >= memoryLimit) {
-            // Переключаемся на файл
             tempFile = File(p.join(directory.path, sanitizedFileName));
             sink = tempFile!.openWrite();
             sink!.add(memoryBuffer.takeBytes());

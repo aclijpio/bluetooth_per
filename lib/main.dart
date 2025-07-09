@@ -1,10 +1,14 @@
+import 'package:bluetooth_per/common/widgets/app_header.dart';
+import 'package:bluetooth_per/features/bluetooth/presentation/screens/flow_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'core/di/injection_container.dart' as di;
 import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
-import 'shared/shared.dart';
+import 'features/bluetooth/presentation/bloc/device_flow_cubit.dart';
+import 'core/data/main_data.dart';
+import 'package:provider/provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,10 +30,9 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return const MaterialApp(
       title: 'Quantor Data Transfer',
-      theme: AppTheme.lightTheme,
-      home: const HomePage(),
+      home: HomePage(),
     );
   }
 }
@@ -39,20 +42,19 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => di.sl<BluetoothBloc>(),
+    return MultiProvider(
+      providers: [
+        Provider<MainData>(create: (context) => di.sl<MainData>()),
+        BlocProvider(create: (context) => di.sl<BluetoothBloc>()),
+        BlocProvider(create: (context) => di.sl<DeviceFlowCubit>()),
+      ],
       child: Scaffold(
-        appBar: AppBar(
-          title: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.bluetooth),
-              SizedBox(width: 12),
-              Text('Quantor'),
-            ],
-          ),
+        body: Column(
+          children: [
+            const SafeArea(child: AppHeader()),
+            Expanded(child: DeviceFlowScreen()),
+          ],
         ),
-        body: const MainScreen(),
       ),
     );
   }

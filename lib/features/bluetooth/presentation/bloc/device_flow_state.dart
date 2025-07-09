@@ -14,6 +14,7 @@ abstract class DeviceFlowState extends Equatable {
 // 1) Initial screen where user can start searching for devices.
 class InitialSearchState extends DeviceFlowState {
   const InitialSearchState();
+
 }
 
 class PendingArchivesState extends DeviceFlowState {

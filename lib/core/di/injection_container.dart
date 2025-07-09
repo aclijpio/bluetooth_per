@@ -7,7 +7,8 @@ import '../../features/bluetooth/data/repositories/bluetooth_repository_impl.dar
 import '../../features/bluetooth/data/transport/bluetooth_transport.dart';
 import '../../features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import '../../features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
-import '../../shared/bloc/app_state_cubit.dart';
+import '../../features/bluetooth/presentation/bloc/device_flow_cubit.dart';
+import '../../common/bloc/operation_sending_cubit.dart';
 import '../../core/utils/archive_sync_manager.dart';
 import '../../core/utils/export_status_manager.dart';
 
@@ -25,9 +26,6 @@ Future<void> init() async {
 
   // Features - Bluetooth
   _registerBluetooth();
-
-  // Shared - State Management
-  _registerSharedComponents();
 }
 
 void _registerUtils() {
@@ -70,12 +68,25 @@ void _registerBluetooth() {
       mainData: sl(),
     ),
   );
+
+  sl.registerFactory(
+    () => DeviceFlowCubit(
+      sl<BluetoothRepository>(),
+      sl<MainData>(),
+    ),
+  );
+
+  sl.registerFactory(
+    () => OperationSendingCubit(sl<MainData>()),
+  );
 }
 
+/*
 void _registerSharedComponents() {
   // State management
   sl.registerFactory(() => AppStateCubit());
 }
+*/
 
 /*
 /// Dispose all resources and clean up dependencies

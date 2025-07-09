@@ -18,6 +18,7 @@ import 'package:bluetooth_per/common/widgets/primary_button.dart';
 import 'package:bluetooth_per/common/widgets/progress_bar.dart';
 import '../bloc/export_progress_cubit.dart';
 import 'package:bluetooth_per/common/widgets/app_header.dart';
+import 'package:bluetooth_per/core/di/injection_container.dart' as di;
 
 class DeviceFlowScreen extends StatelessWidget {
   @override
@@ -66,7 +67,7 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
         }
       },
       child: BlocProvider<OperationSendingCubit>(
-        create: (ctx) => OperationSendingCubit(context.read<MainData>()),
+        create: (ctx) => di.sl<OperationSendingCubit>(),
         child: Scaffold(
           body: Padding(
             padding:
@@ -94,7 +95,9 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                                 state is DownloadingState ||
                                 state is SearchingStateWithDevices,
                       ),
-                    if (state is SearchingState || state is DeviceListState || state is SearchingStateWithDevices)
+                    if (state is SearchingState ||
+                        state is DeviceListState ||
+                        state is SearchingStateWithDevices)
                       const Text(
                         'Устройства',
                         style: TextStyle(

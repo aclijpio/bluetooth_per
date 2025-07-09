@@ -67,15 +67,15 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     result.fold(
       (failure) {
         _searching = false;
-        emit(const InitialSearchState());
+        _loadPending();
       },
       (entities) {
-        _searching = false;
         final devices = entities.map(_toUi).toList();
         _lastFoundDevices.clear();
         _lastFoundDevices.addAll(devices);
+        _searching = false;
         if (devices.isEmpty) {
-          emit(const InitialSearchState());
+          _loadPending();
         } else {
           emit(DeviceListState(devices));
         }
@@ -83,58 +83,67 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     );
   }
 
-  // Connect to a selected device and request archive update.
   Future<void> connectToDevice(Device device) async {
     _searching = false;
     _repository.cancelScan();
     print(
-        '[DeviceFlowCubit] connectToDevice: [36m${device.name}[0m ([36m${device.macAddress}[0m)');
+        '[DeviceFlowCubit] connectToDevice: ${device.name} (${device.macAddress})');
     emit(UploadingState(device));
 
-    final connectRes = await _repository.connectToDevice(_toEntity(device));
+    try {
+      // Timeout на подключение (30 секунд)
+      final connectRes = await _repository
+          .connectToDevice(_toEntity(device))
+          .timeout(const Duration(seconds: 30));
 
-    bool connected = false;
-    connectRes.fold(
-      (failure) {
-        print('[DeviceFlowCubit] connectToDevice: failure=$failure');
-        emit(const InitialSearchState());
-      },
-      (_) {
-        print('[DeviceFlowCubit] connectToDevice: success');
-        connected = true;
-      },
-    );
+      bool connected = false;
+      connectRes.fold(
+        (failure) {
+          print('[DeviceFlowCubit] connectToDevice: failure=$failure');
+          emit(DeviceListState(_lastFoundDevices));
+        },
+        (_) {
+          print('[DeviceFlowCubit] connectToDevice: success');
+          connected = true;
+        },
+      );
 
-    if (!connected) return;
+      if (!connected) return;
 
-    // Listen for archive-update stream.
-    await for (final status in _repository.requestArchiveUpdate()) {
-      print('[DeviceFlowCubit] connectToDevice: archive update status=$status');
-      if (status == 'ARCHIVE_UPDATING') {
-        emit(RefreshingState(device));
-      } else if (status == 'ARCHIVE_READY') {
-        break;
+      // Timeout на обновление архива (60 секунд)
+      await for (final status in _repository.requestArchiveUpdate()) {
+        print(
+            '[DeviceFlowCubit] connectToDevice: archive update status=$status');
+        if (status == 'ARCHIVE_UPDATING') {
+          emit(RefreshingState(device));
+        } else if (status == 'ARCHIVE_READY') {
+          break;
+        }
       }
+
+      // Timeout на получение списка файлов (15 секунд)
+      final listRes =
+          await _repository.getFileList().timeout(const Duration(seconds: 15));
+
+      listRes.fold(
+        (failure) {
+          print(
+              '[DeviceFlowCubit] connectToDevice: getFileList failure=$failure');
+          emit(DeviceListState(_lastFoundDevices));
+        },
+        (fileNames) {
+          final archives = fileNames
+              .map((f) => ArchiveEntry(fileName: f, sizeBytes: 0))
+              .toList();
+          print(
+              '[DeviceFlowCubit] connectToDevice: got ${archives.length} archives');
+          emit(ConnectedState(connectedDevice: device, archives: archives));
+        },
+      );
+    } catch (e) {
+      print('[DeviceFlowCubit] connectToDevice: timeout or error=$e');
+      emit(DeviceListState(_lastFoundDevices));
     }
-
-    // After archive ready, query file list.
-    final listRes = await _repository.getFileList();
-
-    listRes.fold(
-      (failure) {
-        print(
-            '[DeviceFlowCubit] connectToDevice: getFileList failure=$failure');
-        emit(const InitialSearchState());
-      },
-      (fileNames) {
-        final archives = fileNames
-            .map((f) => ArchiveEntry(fileName: f, sizeBytes: 0))
-            .toList();
-        print(
-            '[DeviceFlowCubit] connectToDevice: got ${archives.length} archives');
-        emit(ConnectedState(connectedDevice: device, archives: archives));
-      },
-    );
   }
 
   // Download selected archive using repository and update UI with progress.
@@ -267,6 +276,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
   // Reset to initial.
   void reset() {
+    _searching = false;
     print('[DeviceFlowCubit] reset called');
     _loadPending();
   }
@@ -564,6 +574,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
   }
 
   void stopScanning() {
+    _searching = false;
     _repository.cancelScan();
     emit(DeviceListState(List<Device>.from(_lastFoundDevices)));
   }
