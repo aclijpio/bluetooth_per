@@ -6,7 +6,7 @@ import 'package:logger/logger.dart';
 import '../../features/bluetooth/data/repositories/bluetooth_repository_impl.dart';
 import '../../features/bluetooth/data/transport/bluetooth_transport.dart';
 import '../../features/bluetooth/domain/repositories/bluetooth_repository.dart';
-import '../../features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
+
 import '../../features/bluetooth/presentation/bloc/device_flow_cubit.dart';
 import '../../common/bloc/operation_sending_cubit.dart';
 import '../../core/utils/archive_sync_manager.dart';
@@ -62,13 +62,6 @@ void _registerBluetooth() {
   );
 
   // BLoC layer
-  sl.registerFactory(
-    () => BluetoothBloc(
-      repository: sl(),
-      mainData: sl(),
-    ),
-  );
-
   sl.registerFactory(
     () => DeviceFlowCubit(
       sl<BluetoothRepository>(),

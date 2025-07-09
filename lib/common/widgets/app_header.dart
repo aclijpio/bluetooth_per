@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../../core/config/app_colors.dart';
+import '../../core/config/app_constants.dart';
+import '../../core/config/app_sizes.dart';
+import '../../core/config/app_strings.dart';
 
 class AppHeader extends StatelessWidget {
   const AppHeader({super.key});
@@ -7,26 +11,29 @@ class AppHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSizes.paddingXLarge,
+        vertical: AppSizes.paddingSmall,
+      ),
       decoration: const BoxDecoration(
-        color: Color(0xFF0B78CC), // Цвет PrimaryButton
+        color: AppColors.appBarBackground,
       ),
       width: double.infinity,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           SvgPicture.asset(
-            'assets/images/logo.svg',
-            width: 36,
-            height: 36,
-            colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+            AppConstants.appLogoPath,
+            width: AppConstants.logoSize,
+            height: AppConstants.logoSize,
+            colorFilter: const ColorFilter.mode(AppColors.buttonText, BlendMode.srcIn),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: AppSizes.spacingMedium),
           const Text(
-            'Quantor',
+            AppStrings.appName,
             style: TextStyle(
-              color: Colors.white,
-              fontSize: 28,
+              color: AppColors.buttonText,
+              fontSize: AppSizes.fontHeader,
               fontWeight: FontWeight.w600,
               decoration: TextDecoration.none,
               letterSpacing: 1.2,
@@ -54,10 +61,13 @@ class MainMenuButton extends StatelessWidget {
       child: TextButton.icon(
         onPressed: isBlocked ? null : onPressed,
         icon: const Icon(Icons.arrow_back),
-        label: const Text('В главное меню'),
+        label: const Text(AppStrings.backToMainMenu),
         style: TextButton.styleFrom(
-          foregroundColor: const Color(0xFF0B78CC),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          foregroundColor: AppColors.primary,
+          textStyle: const TextStyle(
+            fontSize: AppSizes.fontMedium,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ),
     );
