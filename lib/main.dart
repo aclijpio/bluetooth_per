@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
-
 import 'core/data/main_data.dart';
 import 'core/di/injection_container.dart' as di;
 import 'core/widgets/app_header.dart';
