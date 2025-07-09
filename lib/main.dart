@@ -41,7 +41,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _requestPermissions() async {
-    // Запрашиваем основные разрешения
     await [
       Permission.location,
       Permission.bluetooth,
@@ -50,7 +49,6 @@ class _HomePageState extends State<HomePage> {
       Permission.storage,
     ].request();
 
-    // Проверяем и запрашиваем разрешение на доступ ко всем файлам
     final manageStorageStatus = await Permission.manageExternalStorage.status;
 
     if (manageStorageStatus != PermissionStatus.granted) {
@@ -69,11 +67,9 @@ class _HomePageState extends State<HomePage> {
               TextButton(
                 onPressed: () async {
                   Navigator.of(context).pop();
-                  // Сначала пробуем запросить разрешение программно
                   final result =
                       await Permission.manageExternalStorage.request();
 
-                  // Если не помогло, открываем настройки
                   if (result != PermissionStatus.granted) {
                     await openAppSettings();
                   }
