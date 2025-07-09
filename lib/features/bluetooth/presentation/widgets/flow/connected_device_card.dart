@@ -1,6 +1,7 @@
-import 'package:bluetooth_per/common/config.dart';
-import 'package:bluetooth_per/common/widgets/base_card.dart';
+import 'package:bluetooth_per/core/config.dart';
 import 'package:flutter/material.dart';
+
+import '../../../../../core/widgets/base_card.dart';
 
 class ConnectedDeviceCard extends StatelessWidget {
   final String name;

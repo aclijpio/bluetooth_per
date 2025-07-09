@@ -1,6 +1,6 @@
+import 'package:bluetooth_per/core/config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:bluetooth_per/common/config.dart';
 
 class AppHeader extends StatelessWidget {
   const AppHeader({super.key});

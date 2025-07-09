@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:bluetooth_per/common/config.dart';
+import 'package:bluetooth_per/core/config.dart';
 import 'package:http/http.dart' as http;
 
 class ServerConnection {

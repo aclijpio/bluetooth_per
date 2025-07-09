@@ -1,4 +1,4 @@
-import 'package:bluetooth_per/common/config.dart';
+import 'package:bluetooth_per/core/config.dart';
 import 'package:bluetooth_per/features/bluetooth/presentation/bloc/transfer_cubit.dart';
 import 'package:bluetooth_per/features/bluetooth/presentation/models/device.dart';
 import 'package:bluetooth_per/features/bluetooth/presentation/widgets/device_tile.dart';

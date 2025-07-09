@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:bluetooth_per/common/config.dart';
+import 'package:bluetooth_per/core/config.dart';
 import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
 import 'package:dio/dio.dart';
 

@@ -1,5 +1,5 @@
+import 'package:bluetooth_per/core/config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:bluetooth_per/common/config.dart';
 
 class DbUpdateChecker {
   DbUpdateChecker._();

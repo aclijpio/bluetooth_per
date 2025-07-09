@@ -1,8 +1,7 @@
+import 'package:bluetooth_per/core/config.dart';
 import 'package:flutter/material.dart';
 import '../../core/config/app_colors.dart';
 import '../../core/config/app_sizes.dart';
-
-import 'package:bluetooth_per/common/config.dart';
 
 class ProgressBarWithPercent extends StatelessWidget {
   final double progress;

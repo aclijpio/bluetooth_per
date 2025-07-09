@@ -1,4 +1,4 @@
-import 'package:bluetooth_per/common/config.dart';
+import 'package:bluetooth_per/core/config.dart';
 import 'package:flutter/material.dart';
 
 class SearchingBody extends StatelessWidget {

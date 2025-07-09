@@ -1,13 +1,13 @@
-import 'package:bluetooth_per/common/widgets/app_header.dart';
 import 'package:bluetooth_per/features/bluetooth/presentation/screens/flow_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
-
-import 'core/di/injection_container.dart' as di;
-import 'features/bluetooth/presentation/bloc/transfer_cubit.dart';
-import 'core/data/main_data.dart';
 import 'package:provider/provider.dart';
+
+import 'core/data/main_data.dart';
+import 'core/di/injection_container.dart' as di;
+import 'core/widgets/app_header.dart';
+import 'features/bluetooth/presentation/bloc/transfer_cubit.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

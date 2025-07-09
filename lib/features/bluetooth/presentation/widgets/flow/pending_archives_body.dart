@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:bluetooth_per/common/config.dart';
+import 'package:bluetooth_per/core/config.dart';
 import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
 import 'package:bluetooth_per/features/bluetooth/presentation/bloc/transfer_cubit.dart';
 import 'package:flutter/material.dart';

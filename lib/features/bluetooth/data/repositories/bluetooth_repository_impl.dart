@@ -4,19 +4,18 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dartz/dartz.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../../core/config.dart';
 import '../../../../core/error/failures.dart';
+import '../../../../core/utils/archive_sync_manager.dart';
 import '../../domain/entities/bluetooth_device.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
 import '../protocol/bluetooth_protocol.dart';
 import '../transport/bluetooth_transport.dart';
-import '../../../../core/utils/archive_sync_manager.dart';
-import '../../../../common/config.dart';
 
 class BluetoothRepositoryImpl implements BluetoothRepository {
   final FlutterBlueClassic _flutterBlueClassic;

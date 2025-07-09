@@ -1,5 +1,6 @@
+import 'package:bluetooth_per/core/config.dart';
 import 'package:flutter/material.dart';
-import 'package:bluetooth_per/common/config.dart';
+
 import '../models/device.dart';
 
 class DeviceTile extends StatelessWidget {

@@ -1,10 +1,10 @@
-import 'package:bluetooth_per/common/config.dart';
-import 'package:bluetooth_per/common/widgets/base_card.dart';
-import 'package:bluetooth_per/common/widgets/progress_bar.dart';
+import 'package:bluetooth_per/core/config.dart';
 import 'package:bluetooth_per/core/utils/formatting.dart';
 import 'package:bluetooth_per/features/bluetooth/presentation/bloc/transfer_state.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../../core/widgets/base_card.dart';
+import '../../../../../core/widgets/progress_bar.dart';
 import 'connected_device_card.dart';
 
 class DownloadingBody extends StatelessWidget {

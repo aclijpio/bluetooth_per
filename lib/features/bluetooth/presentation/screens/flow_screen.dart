@@ -1,31 +1,29 @@
+import 'dart:async';
+
+import 'package:bluetooth_per/core/bloc/operation_sending_cubit.dart';
+import 'package:bluetooth_per/core/config.dart';
+import 'package:bluetooth_per/core/data/main_data.dart';
+import 'package:bluetooth_per/core/di/injection_container.dart' as di;
+import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
+import 'package:bluetooth_per/core/widgets/app_header.dart';
+import 'package:bluetooth_per/core/widgets/primary_button.dart';
+import 'package:bluetooth_per/core/widgets/progress_bar.dart';
+import 'package:bluetooth_per/features/web/presentation/bloc/sending_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'dart:async';
-import 'dart:io';
 
-import 'package:bluetooth_per/common/config.dart';
+import '../bloc/export_progress_cubit.dart';
 import '../bloc/transfer_cubit.dart';
 import '../bloc/transfer_state.dart';
-import '../widgets/device_tile.dart';
-import '../widgets/archive_table.dart';
-import '../models/device.dart';
-import 'package:bluetooth_per/core/data/main_data.dart';
-import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
 import '../models/archive_entry.dart';
-import 'package:bluetooth_per/common/bloc/operation_sending_cubit.dart';
-import 'package:bluetooth_per/features/web/presentation/bloc/sending_state.dart';
-import 'package:bluetooth_per/common/widgets/primary_button.dart';
-import 'package:bluetooth_per/common/widgets/progress_bar.dart';
-import '../bloc/export_progress_cubit.dart';
-import 'package:bluetooth_per/common/widgets/app_header.dart';
-import 'package:bluetooth_per/core/di/injection_container.dart' as di;
-import '../widgets/flow/searching_body.dart';
-import '../widgets/flow/device_list_body.dart';
+import '../widgets/archive_table.dart';
 import '../widgets/flow/connected_body.dart';
-import '../widgets/flow/downloading_body.dart';
-import '../widgets/flow/pending_archives_body.dart';
 import '../widgets/flow/connected_device_card.dart';
+import '../widgets/flow/device_list_body.dart';
+import '../widgets/flow/downloading_body.dart';
 import '../widgets/flow/info_message_body.dart';
+import '../widgets/flow/pending_archives_body.dart';
+import '../widgets/flow/searching_body.dart';
 
 class DeviceFlowScreen extends StatelessWidget {
   @override

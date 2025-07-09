@@ -1,15 +1,16 @@
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter/material.dart';
-import 'package:bluetooth_per/common/config.dart';
-import '../../../../core/data/main_data.dart';
-import 'transfer_state.dart';
-import '../models/device.dart';
-import '../models/archive_entry.dart';
-import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
-import 'package:bluetooth_per/features/bluetooth/domain/entities/bluetooth_device.dart';
+import 'package:bluetooth_per/core/config.dart';
+import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
 import 'package:bluetooth_per/core/utils/export_status_manager.dart';
-import 'package:bluetooth_per/core/data/source/operation.dart';
+import 'package:bluetooth_per/features/bluetooth/domain/entities/bluetooth_device.dart';
+import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../../../core/data/main_data.dart';
+import '../models/archive_entry.dart';
+import '../models/device.dart';
+import 'transfer_state.dart';
 
 class TransferCubit extends Cubit<TransferState> {
   final BluetoothRepository _repository;

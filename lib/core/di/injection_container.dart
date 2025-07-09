@@ -1,3 +1,4 @@
+import 'package:bluetooth_per/core/bloc/operation_sending_cubit.dart';
 import 'package:bluetooth_per/core/data/main_data.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
 import 'package:get_it/get_it.dart';
@@ -7,9 +8,6 @@ import '../../features/bluetooth/data/repositories/bluetooth_repository_impl.dar
 import '../../features/bluetooth/data/transport/bluetooth_transport.dart';
 import '../../features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import '../../features/bluetooth/presentation/bloc/transfer_cubit.dart';
-import '../../common/bloc/operation_sending_cubit.dart';
-import '../../core/utils/archive_sync_manager.dart';
-import '../../core/utils/export_status_manager.dart';
 
 final sl = GetIt.instance;
 

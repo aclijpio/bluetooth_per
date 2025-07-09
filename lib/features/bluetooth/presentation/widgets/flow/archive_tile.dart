@@ -1,5 +1,5 @@
-import 'package:bluetooth_per/common/config.dart';
-import 'package:bluetooth_per/common/widgets/base_card.dart';
+import 'package:bluetooth_per/core/config.dart';
+import 'package:bluetooth_per/core/widgets/base_card.dart';
 import 'package:flutter/material.dart';
 
 class ArchiveTile extends StatelessWidget {
