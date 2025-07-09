@@ -1,4 +1,4 @@
-THIS SHOULD BE A LINTER ERRORimport 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/data/main_data.dart';
 import 'device_flow_state.dart';
 import '../models/device.dart';
@@ -51,15 +51,13 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
   // Enable Bluetooth and start scanning
   Future<void> enableBluetoothAndScan() async {
-    print(
-        '[DeviceFlowCubit] enableBluetoothAndScan: requesting Bluetooth enable');
+    AppLogger.deviceFlow('enableBluetoothAndScan: requesting Bluetooth enable');
     emit(const SearchingState());
 
     final enableResult = await _repository.enableBluetooth();
     enableResult.fold(
       (failure) {
-        print(
-            '[DeviceFlowCubit] enableBluetoothAndScan: failed to enable Bluetooth - ${failure.message}');
+        AppLogger.deviceFlow('enableBluetoothAndScan: failed to enable Bluetooth - ${failure.message}');
         if (failure.message.contains('отклонил')) {
           // Пользователь отказался включить Bluetooth
           emit(const BluetoothDisabledState());
@@ -69,8 +67,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         }
       },
       (success) {
-        print(
-            '[DeviceFlowCubit] enableBluetoothAndScan: Bluetooth enabled, starting scan');
+        AppLogger.deviceFlow('enableBluetoothAndScan: Bluetooth enabled, starting scan');
         // После включения Bluetooth сразу начинаем поиск
         startScanning();
       },
@@ -139,23 +136,22 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
   Future<void> connectToDevice(Device device) async {
     _searching = false;
     _repository.cancelScan();
-    print(
-        '[DeviceFlowCubit] connectToDevice: ${device.name} (${device.macAddress})');
+    AppLogger.deviceFlow('connectToDevice: ${device.name} (${device.macAddress})');
     emit(UploadingState(device));
 
     try {
       final connectRes = await _repository
           .connectToDevice(_toEntity(device))
-          .timeout(const Duration(seconds: 30));
+          .timeout(AppTimeouts.bluetoothConnectionTimeout);
 
       bool connected = false;
       connectRes.fold(
         (failure) {
-          print('[DeviceFlowCubit] connectToDevice: failure=$failure');
+          AppLogger.deviceFlow('connectToDevice: failure=$failure');
           emit(DeviceListState(_lastFoundDevices));
         },
         (_) {
-          print('[DeviceFlowCubit] connectToDevice: success');
+          AppLogger.deviceFlow('connectToDevice: success');
           connected = true;
         },
       );
@@ -164,8 +160,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
       // Timeout на обновление архива (60 секунд)
       await for (final status in _repository.requestArchiveUpdate()) {
-        print(
-            '[DeviceFlowCubit] connectToDevice: archive update status=$status');
+        AppLogger.deviceFlow('connectToDevice: archive update status=$status');
         if (status == 'ARCHIVE_UPDATING') {
           emit(RefreshingState(device));
         } else if (status == 'ARCHIVE_READY') {
@@ -173,35 +168,32 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         }
       }
 
-      final listRes = await _repository.getReadyArchive().timeout(const Duration(seconds: 10));
+      final listRes = await _repository.getReadyArchive().timeout(AppTimeouts.archiveReadyTimeout);
 
       listRes.fold(
         (failure) {
-          print(
-              '[DeviceFlowCubit] connectToDevice: getFileList failure=$failure');
+          AppLogger.deviceFlow('connectToDevice: getFileList failure=$failure');
           emit(DeviceListState(_lastFoundDevices));
         },
         (fileNames) {
           final archives = fileNames
               .map((f) => ArchiveEntry(fileName: f, sizeBytes: 0))
               .toList();
-          print(
-              '[DeviceFlowCubit] connectToDevice: got ${archives.length} archives');
+          AppLogger.deviceFlow('connectToDevice: got ${archives.length} archives');
           emit(ConnectedState(connectedDevice: device, archives: archives));
         },
       );
     } catch (e) {
-      print('[DeviceFlowCubit] connectToDevice: timeout or error=$e');
+      AppLogger.deviceFlow('connectToDevice: timeout or error=$e');
       emit(DeviceListState(_lastFoundDevices));
     }
   }
 
   // Download selected archive using repository and update UI with progress.
   Future<void> downloadArchive(ArchiveEntry entry) async {
-    print('[DeviceFlowCubit] downloadArchive: ${entry.fileName}');
+    AppLogger.deviceFlow('downloadArchive: ${entry.fileName}');
     if (state is! ConnectedState) {
-      print(
-          '[DeviceFlowCubit] downloadArchive: not in ConnectedState, current=$state');
+      AppLogger.deviceFlow('downloadArchive: not in ConnectedState, current=$state');
       return;
     }
 
@@ -239,8 +231,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         ));
       },
       onComplete: (filePath) async {
-        print(
-            '[DeviceFlowCubit] downloadArchive: onComplete filePath=$filePath');
+        AppLogger.deviceFlow('downloadArchive: onComplete filePath=$filePath');
         await _handleDownloadedDb(filePath, entry, connectedDevice);
       },
     );
@@ -256,7 +247,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
   // Process downloaded SQLite database and show table.
   Future<void> _handleDownloadedDb(
       String filePath, ArchiveEntry entry, Device connectedDevice) async {
-    print('[DeviceFlowCubit] _handleDownloadedDb: filePath=$filePath');
+    AppLogger.deviceFlow('_handleDownloadedDb: filePath=$filePath');
     _mainData.dbPath = filePath;
     _mainData.resetOperationData();
 
@@ -274,15 +265,15 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         '[DeviceFlowCubit] _handleDownloadedDb: awaitOperations status = $localStatus');
 
     if (localStatus == OperStatus.dbError) {
-      emit(const DbErrorState('Файл не является базой данных или повреждён.'));
+      emit(const DbErrorState(AppStrings.databaseError));
       return;
     }
     if (localStatus == OperStatus.filePathError) {
-      emit(const DbErrorState('Не выбран файл базы данных.'));
+      emit(const DbErrorState(AppStrings.filePathError));
       return;
     }
     if (localStatus != OperStatus.ok) {
-      emit(const DbErrorState('Неизвестная ошибка при открытии базы данных.'));
+      emit(const DbErrorState(AppStrings.unknownDatabaseError));
       return;
     }
 

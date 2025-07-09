@@ -5,7 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'core/di/injection_container.dart' as di;
-import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
+
 import 'features/bluetooth/presentation/bloc/device_flow_cubit.dart';
 import 'core/data/main_data.dart';
 import 'package:provider/provider.dart';
@@ -67,7 +67,6 @@ class HomePage extends StatelessWidget {
     return MultiProvider(
       providers: [
         Provider<MainData>(create: (context) => di.sl<MainData>()),
-        BlocProvider(create: (context) => di.sl<BluetoothBloc>()),
         BlocProvider(create: (context) => di.sl<DeviceFlowCubit>()),
       ],
       child: Scaffold(
