@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../bloc/transfer_state.dart';
 
 class InfoMessageBody extends StatelessWidget {

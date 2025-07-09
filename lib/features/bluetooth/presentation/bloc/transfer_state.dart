@@ -1,8 +1,9 @@
+import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
-import '../models/device.dart';
+
 import '../models/archive_entry.dart';
-import 'package:bluetooth_per/core/data/source/operation.dart';
+import '../models/device.dart';
 
 abstract class TransferState extends Equatable {
   const TransferState();
