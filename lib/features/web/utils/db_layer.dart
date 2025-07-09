@@ -84,8 +84,7 @@ class DbLayer {
     }
   }
 
-  static Future<List<Point>> getOperationPoints(
-      Database db, int dt1, int dt2) async {
+  static Future<List<Point>> getOperationPoints(Database db, int dt1, int dt2) async {
     var res = await db.query(
       'tmc_points',
       columns: ['date', 'point', 'lat', 'lon', 'speed'],
@@ -99,7 +98,6 @@ class DbLayer {
       Set<int> seenDt = {};
       for (var e in res) {
         Point point = Point.fromMap(e);
-        // проверка на повторную точку в базе через Set
         if (seenDt.add(point.dt)) {
           resultList.add(point);
         }

@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../../core/error/failures.dart';
 import '../../domain/entities/bluetooth_device.dart';
@@ -36,9 +37,98 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
   BluetoothRepositoryImpl(this._transport, this._flutterBlueClassic);
 
+  /// Проверяет все необходимые разрешения и состояние Bluetooth для сканирования
+  Future<Either<Failure, bool>> _checkBluetoothPermissions() async {
+    try {
+      // Сначала проверяем включен ли Bluetooth
+      final isBluetoothEnabledResult = await isBluetoothEnabled();
+      bool bluetoothEnabled = false;
+      isBluetoothEnabledResult.fold(
+        (failure) => bluetoothEnabled = false,
+        (enabled) => bluetoothEnabled = enabled,
+      );
+
+      print('[BluetoothRepo] Bluetooth enabled: $bluetoothEnabled');
+
+      if (!bluetoothEnabled) {
+        return Left(BluetoothFailure(message: 'BLUETOOTH_DISABLED'));
+      }
+
+      // Проверяем базовые Bluetooth разрешения
+      final bluetoothStatus = await Permission.bluetooth.status;
+
+      // На Android 12+ нужны новые разрешения
+      final bluetoothScanStatus = await Permission.bluetoothScan.status;
+      final bluetoothConnectStatus = await Permission.bluetoothConnect.status;
+
+      // На Android 10- нужны разрешения местоположения для Bluetooth сканирования
+      final locationStatus = await Permission.location.status;
+      final locationWhenInUseStatus = await Permission.locationWhenInUse.status;
+
+      print('[BluetoothRepo] Permission status:');
+      print('  Bluetooth: $bluetoothStatus');
+      print('  BluetoothScan: $bluetoothScanStatus');
+      print('  BluetoothConnect: $bluetoothConnectStatus');
+      print('  Location: $locationStatus');
+      print('  LocationWhenInUse: $locationWhenInUseStatus');
+
+      // Автоматически запрашиваем разрешения если нужно
+      List<Permission> permissionsToRequest = [];
+
+      // Проверяем базовые разрешения
+      if (bluetoothStatus.isDenied &&
+          bluetoothStatus != PermissionStatus.permanentlyDenied) {
+        permissionsToRequest.add(Permission.bluetooth);
+      }
+
+      // Для Android 12+ проверяем новые разрешения
+      if (bluetoothScanStatus.isDenied &&
+          bluetoothScanStatus != PermissionStatus.permanentlyDenied) {
+        permissionsToRequest.add(Permission.bluetoothScan);
+      }
+
+      if (bluetoothConnectStatus.isDenied &&
+          bluetoothConnectStatus != PermissionStatus.permanentlyDenied) {
+        permissionsToRequest.add(Permission.bluetoothConnect);
+      }
+
+      // Для старых версий Android нужны разрешения местоположения
+      final hasLocationPermission =
+          locationStatus.isGranted || locationWhenInUseStatus.isGranted;
+      if (!hasLocationPermission) {
+        if (locationStatus.isDenied &&
+            locationStatus != PermissionStatus.permanentlyDenied) {
+          permissionsToRequest.add(Permission.location);
+        }
+        if (locationWhenInUseStatus.isDenied &&
+            locationWhenInUseStatus != PermissionStatus.permanentlyDenied) {
+          permissionsToRequest.add(Permission.locationWhenInUse);
+        }
+      }
+
+      // Запрашиваем разрешения если нужно
+      if (permissionsToRequest.isNotEmpty) {
+        print('[BluetoothRepo] Requesting permissions: $permissionsToRequest');
+        await permissionsToRequest.request();
+        // Система покажет свои диалоги, продолжаем независимо от результата
+      }
+
+      return const Right(true);
+    } catch (e) {
+      return Left(BluetoothFailure(message: 'Ошибка проверки разрешений: $e'));
+    }
+  }
+
   @override
   Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices(
       {void Function(BluetoothDeviceEntity)? onDeviceFound}) async {
+    // Сначала проверяем разрешения
+    final permissionCheck = await _checkBluetoothPermissions();
+    if (permissionCheck.isLeft()) {
+      return permissionCheck.fold((failure) => Left(failure),
+          (_) => Left(BluetoothFailure(message: 'Unknown permission error')));
+    }
+
     try {
       const int maxAttempts = 1;
       const Duration attemptDuration = Duration(seconds: 50);
@@ -58,7 +148,8 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           if (!found.any((e) => e.address == d.address)) {
             found.add(BluetoothDeviceEntity(address: d.address, name: d.name));
             if (onDeviceFound != null) {
-              onDeviceFound(BluetoothDeviceEntity(address: d.address, name: d.name));
+              onDeviceFound(
+                  BluetoothDeviceEntity(address: d.address, name: d.name));
             }
           }
 
@@ -537,9 +628,32 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   @override
   Future<Either<Failure, bool>> enableBluetooth() async {
     try {
+      print('[BluetoothRepo] enableBluetooth: requesting Bluetooth turn on');
       _flutterBlueClassic.turnOn();
-      return const Right(true);
+
+      // Ждем некоторое время для включения Bluetooth и проверяем статус
+      await Future.delayed(const Duration(seconds: 2));
+
+      final isEnabledResult = await isBluetoothEnabled();
+      return isEnabledResult.fold(
+        (failure) => Left(BluetoothFailure(
+            message:
+                'Не удалось проверить статус Bluetooth: ${failure.message}')),
+        (isEnabled) {
+          if (isEnabled) {
+            print(
+                '[BluetoothRepo] enableBluetooth: Bluetooth successfully enabled');
+            return const Right(true);
+          } else {
+            print(
+                '[BluetoothRepo] enableBluetooth: Bluetooth was not enabled (user denied?)');
+            return Left(BluetoothFailure(
+                message: 'Пользователь отклонил включение Bluetooth'));
+          }
+        },
+      );
     } catch (e) {
+      print('[BluetoothRepo] enableBluetooth: error - $e');
       return Left(BluetoothFailure(message: e.toString()));
     }
   }

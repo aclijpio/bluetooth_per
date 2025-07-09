@@ -2,7 +2,6 @@ import 'package:equatable/equatable.dart';
 import '../models/device.dart';
 import '../models/archive_entry.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
-import 'package:flutter/material.dart';
 
 // Base class for all states.
 abstract class DeviceFlowState extends Equatable {
@@ -166,16 +165,7 @@ class NetErrorState extends DeviceFlowState {
   List<Object?> get props => [dbPath];
 }
 
-// Универсальное состояние для обработки ошибок
-class ExceptionState extends DeviceFlowState {
-  final Widget infoWidget;
-  final VoidCallback onOkPressed;
-
-  const ExceptionState({
-    required this.infoWidget,
-    required this.onOkPressed,
-  });
-
-  @override
-  List<Object?> get props => [infoWidget, onOkPressed];
+// Bluetooth выключен
+class BluetoothDisabledState extends DeviceFlowState {
+  const BluetoothDisabledState();
 }

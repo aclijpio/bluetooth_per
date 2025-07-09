@@ -57,7 +57,6 @@ class WebLayer {
       return 200;
     }
   }
-
   static Future<int> exportOperDataWithProgress(
       String serial, Operation op, void Function(double) onProgress) async {
     Map<String, dynamic> request = {

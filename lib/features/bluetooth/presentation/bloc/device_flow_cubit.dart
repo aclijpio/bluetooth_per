@@ -1,7 +1,4 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter/material.dart';
-import 'dart:math';
-import 'dart:async';
 import '../../../../core/data/main_data.dart';
 import 'device_flow_state.dart';
 import '../models/device.dart';
@@ -9,8 +6,7 @@ import '../models/archive_entry.dart';
 import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import 'package:bluetooth_per/features/bluetooth/domain/entities/bluetooth_device.dart';
 import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
-import 'package:bluetooth_per/core/utils/export_status_manager.dart'
-   ;
+import 'package:bluetooth_per/core/utils/export_status_manager.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
 
 class DeviceFlowCubit extends Cubit<DeviceFlowState> {
@@ -33,72 +29,6 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     }
   }
 
-  // Генерация случайного номера телефона для связи
-  String _generateRandomPhoneNumber() {
-    final random = Random();
-    final phoneNumbers = [
-      '+7 (123) 456-78-90',
-      '+7 (987) 654-32-10',
-      '+7 (555) 123-45-67',
-      '+7 (999) 888-77-66',
-      '+7 (777) 222-33-44',
-    ];
-    return phoneNumbers[random.nextInt(phoneNumbers.length)];
-  }
-
-  // Создание виджета ошибки ТМС сервера
-  Widget _createTmsErrorWidget() {
-    final phoneNumber = _generateRandomPhoneNumber();
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(
-          Icons.wifi_off,
-          size: 64,
-          color: Colors.orange,
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Нет ответа от ТМС',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF222222),
-          ),
-        ),
-        const SizedBox(height: 16),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 40),
-          child: Text(
-            'Возможно сервер не был запущен на устройстве ТМС, либо нет подключения к серверу.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              color: Color(0xFF5F5F5F),
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'Контактный телефон:',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey[600],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          phoneNumber,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w500,
-            color: Color(0xFF0B78CC),
-          ),
-        ),
-      ],
-    );
-  }
-
   // Helper: convert bytes/sec to human-readable label.
   String _formatSpeed(double bytesPerSec) {
     if (bytesPerSec < 1024) {
@@ -115,6 +45,34 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
   Device _toUi(BluetoothDeviceEntity e) =>
       Device(name: e.name ?? '', macAddress: e.address);
+
+  // Enable Bluetooth and start scanning
+  Future<void> enableBluetoothAndScan() async {
+    print(
+        '[DeviceFlowCubit] enableBluetoothAndScan: requesting Bluetooth enable');
+    emit(const SearchingState());
+
+    final enableResult = await _repository.enableBluetooth();
+    enableResult.fold(
+      (failure) {
+        print(
+            '[DeviceFlowCubit] enableBluetoothAndScan: failed to enable Bluetooth - ${failure.message}');
+        if (failure.message.contains('отклонил')) {
+          // Пользователь отказался включить Bluetooth
+          emit(const BluetoothDisabledState());
+        } else {
+          // Другая ошибка
+          emit(const BluetoothDisabledState());
+        }
+      },
+      (success) {
+        print(
+            '[DeviceFlowCubit] enableBluetoothAndScan: Bluetooth enabled, starting scan');
+        // После включения Bluetooth сразу начинаем поиск
+        startScanning();
+      },
+    );
+  }
 
   // Start scanning for Bluetooth devices using the repository.
   Future<void> startScanning() async {
@@ -135,23 +93,44 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
     result.fold(
       (failure) {
-        if (!_searching) return;
+        if (!_searching || _isActiveState()) return;
         _searching = false;
-        emit(const InitialSearchState());
+
+        // Показываем пользователю понятное сообщение об ошибке
+        if (failure.message == 'BLUETOOTH_DISABLED') {
+          emit(const BluetoothDisabledState());
+        } else if (failure.message.contains('разрешение')) {
+        } else {
+          _loadPending();
+        }
       },
       (entities) {
-        if (!_searching) return;
+        // Не меняем состояние, если поиск уже остановлен или идут активные операции
+        if (!_searching || _isActiveState()) return;
         final devices = entities.map(_toUi).toList();
         _lastFoundDevices.clear();
         _lastFoundDevices.addAll(devices);
         _searching = false;
         if (devices.isEmpty) {
-          emit(const InitialSearchState());
+          _loadPending();
         } else {
           emit(DeviceListState(devices));
         }
       },
     );
+  }
+
+  // Проверяет, находится ли cubit в активном состоянии (подключение/скачивание/таблица)
+  bool _isActiveState() {
+    return state is UploadingState ||
+        state is RefreshingState ||
+        state is DownloadingState ||
+        state is ConnectedState ||
+        state is TableViewState ||
+        state is ExportingState ||
+        state is NetErrorState ||
+        state is DbErrorState ||
+        state is BluetoothDisabledState;
   }
 
   Future<void> connectToDevice(Device device) async {
@@ -162,49 +141,16 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     emit(UploadingState(device));
 
     try {
+      // Timeout на подключение (30 секунд)
       final connectRes = await _repository
           .connectToDevice(_toEntity(device))
-          .timeout(const Duration(seconds: 20));
+          .timeout(const Duration(seconds: 30));
 
       bool connected = false;
       connectRes.fold(
         (failure) {
-          emit(ExceptionState(
-            infoWidget: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.bluetooth_disabled,
-                  size: 64,
-                  color: Colors.red,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Ошибка подключения',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF222222),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: Text(
-                    'Не удалось подключиться к устройству ${device.name}.\n Убедитесь, что устройство ТМС включено и находится в зоне действия.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF5F5F5F),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            onOkPressed: () {
-              emit(DeviceListState(_lastFoundDevices));
-            },
-          ));
+          print('[DeviceFlowCubit] connectToDevice: failure=$failure');
+          emit(DeviceListState(_lastFoundDevices));
         },
         (_) {
           print('[DeviceFlowCubit] connectToDevice: success');
@@ -216,6 +162,8 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
       // Timeout на обновление архива (60 секунд)
       await for (final status in _repository.requestArchiveUpdate()) {
+        print(
+            '[DeviceFlowCubit] connectToDevice: archive update status=$status');
         if (status == 'ARCHIVE_UPDATING') {
           emit(RefreshingState(device));
         } else if (status == 'ARCHIVE_READY') {
@@ -223,47 +171,15 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         }
       }
 
+      // Timeout на получение списка файлов (15 секунд)
       final listRes =
-          await _repository.getReadyArchive().timeout(const Duration(seconds: 15));
+          await _repository.getFileList().timeout(const Duration(seconds: 15));
 
       listRes.fold(
         (failure) {
-          emit(ExceptionState(
-            infoWidget: const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.folder_off,
-                  size: 64,
-                  color: Colors.orange,
-                ),
-                SizedBox(height: 16),
-                Text(
-                  'Ошибка получения списка файлов',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF222222),
-                  ),
-                ),
-                SizedBox(height: 16),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 40),
-                  child: Text(
-                    'Не удалось получить список архивов с устройства. Попробуйте подключиться снова.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF5F5F5F),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            onOkPressed: () {
-              emit(DeviceListState(_lastFoundDevices));
-            },
-          ));
+          print(
+              '[DeviceFlowCubit] connectToDevice: getFileList failure=$failure');
+          emit(DeviceListState(_lastFoundDevices));
         },
         (fileNames) {
           final archives = fileNames
@@ -276,45 +192,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
       );
     } catch (e) {
       print('[DeviceFlowCubit] connectToDevice: timeout or error=$e');
-      final isTimeout = e.toString().contains('TimeoutException');
-      emit(ExceptionState(
-        infoWidget: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isTimeout ? Icons.timer_off : Icons.error_outline,
-              size: 64,
-              color: Colors.orange,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              isTimeout ? 'Время ожидания истекло' : 'Ошибка подключения',
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF222222),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                isTimeout
-                    ? 'Превышено время ожидания ответа от устройства. Попробуйте подключиться снова.'
-                    : 'Произошла ошибка при подключении к устройству. Попробуйте снова.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF5F5F5F),
-                ),
-              ),
-            ),
-          ],
-        ),
-        onOkPressed: () {
-          emit(DeviceListState(_lastFoundDevices));
-        },
-      ));
+      emit(DeviceListState(_lastFoundDevices));
     }
   }
 
@@ -369,43 +247,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
 
     downloadRes.fold(
       (failure) {
-        print('[DeviceFlowCubit] downloadArchive: failure=$failure');
-        emit(ExceptionState(
-          infoWidget: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.cloud_download,
-                size: 64,
-                color: Colors.red,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Ошибка загрузки',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF222222),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 40),
-                child: Text(
-                  'Не удалось загрузить архив с устройства. Проверьте соединение и попробуйте снова.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF5F5F5F),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          onOkPressed: () {
-            emit(DeviceListState(_lastFoundDevices));
-          },
-        ));
+        emit(DeviceListState(_lastFoundDevices));
       },
       (_) {},
     );
@@ -432,120 +274,15 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
         '[DeviceFlowCubit] _handleDownloadedDb: awaitOperations status = $localStatus');
 
     if (localStatus == OperStatus.dbError) {
-      emit(ExceptionState(
-        infoWidget: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Ошибка базы данных',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF222222),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Файл не является базой данных или повреждён.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF5F5F5F),
-                ),
-              ),
-            ),
-          ],
-        ),
-        onOkPressed: () {
-          reset();
-        },
-      ));
+      emit(const DbErrorState('Файл не является базой данных или повреждён.'));
       return;
     }
     if (localStatus == OperStatus.filePathError) {
-      emit(ExceptionState(
-        infoWidget: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.folder_off,
-              size: 64,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Ошибка файла',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF222222),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Не выбран файл базы данных.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF5F5F5F),
-                ),
-              ),
-            ),
-          ],
-        ),
-        onOkPressed: () {
-          reset();
-        },
-      ));
+      emit(const DbErrorState('Не выбран файл базы данных.'));
       return;
     }
     if (localStatus != OperStatus.ok) {
-      emit(ExceptionState(
-        infoWidget: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.warning_amber,
-              size: 64,
-              color: Colors.orange,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Неизвестная ошибка',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF222222),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Неизвестная ошибка при открытии базы данных.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF5F5F5F),
-                ),
-              ),
-            ),
-          ],
-        ),
-        onOkPressed: () {
-          reset();
-        },
-      ));
+      emit(const DbErrorState('Неизвестная ошибка при открытии базы данных.'));
       return;
     }
 
@@ -578,17 +315,11 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     notifyTableChanged();
 
     if (netStatus != OperStatus.ok) {
-      // Нет сети – помечаем архив как «ожидающий» и показываем ошибку
+      // Нет сети – помечаем архив как «ожидающий» и показываем ошибку, но таблица уже показана
       print(
           '[DeviceFlowCubit] _handleDownloadedDb: netStatus not ok, marking as pending');
       await ArchiveSyncManager.addPending(filePath);
-
-      emit(ExceptionState(
-        infoWidget: _createTmsErrorWidget(),
-        onOkPressed: () {
-          emit(DeviceListState(_lastFoundDevices));
-        },
-      ));
+      emit(NetErrorState(filePath));
     }
   }
 
@@ -616,120 +347,15 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     final status = await _mainData.awaitOperations();
 
     if (status == OperStatus.dbError) {
-      emit(ExceptionState(
-        infoWidget: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Ошибка базы данных',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF222222),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Файл не является базой данных или повреждён.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF5F5F5F),
-                ),
-              ),
-            ),
-          ],
-        ),
-        onOkPressed: () {
-          reset();
-        },
-      ));
+      emit(const DbErrorState('Файл не является базой данных или повреждён.'));
       return;
     }
     if (status == OperStatus.filePathError) {
-      emit(ExceptionState(
-        infoWidget: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.folder_off,
-              size: 64,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Ошибка файла',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF222222),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Не выбран файл базы данных.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF5F5F5F),
-                ),
-              ),
-            ),
-          ],
-        ),
-        onOkPressed: () {
-          reset();
-        },
-      ));
+      emit(const DbErrorState('Не выбран файл базы данных.'));
       return;
     }
     if (status != OperStatus.ok) {
-      emit(ExceptionState(
-        infoWidget: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.warning_amber,
-              size: 64,
-              color: Colors.orange,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Неизвестная ошибка',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF222222),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Неизвестная ошибка при открытии базы данных.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF5F5F5F),
-                ),
-              ),
-            ),
-          ],
-        ),
-        onOkPressed: () {
-          reset();
-        },
-      ));
+      emit(const DbErrorState('Неизвестная ошибка при открытии базы данных.'));
       return;
     }
 
@@ -759,13 +385,7 @@ class DeviceFlowCubit extends Cubit<DeviceFlowState> {
     notifyTableChanged();
 
     if (netStatus != OperStatus.ok) {
-      emit(ExceptionState(
-        infoWidget: _createTmsErrorWidget(),
-        onOkPressed: () async {
-          // Возвращаемся к таблице и пробуем снова
-          await loadLocalArchive(dbPath);
-        },
-      ));
+      emit(NetErrorState(dbPath));
     }
   }
 

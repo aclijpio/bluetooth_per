@@ -18,11 +18,31 @@ void main() async {
 }
 
 Future<void> _requestPermissions() async {
+  // Storage permissions
   await Permission.storage.request();
   await Permission.manageExternalStorage.request();
-  await Permission.bluetoothScan.request();
+
+  // Location permissions - required for Bluetooth scanning on Android 10-
+  final locationPermission = await Permission.location.request();
+  if (locationPermission.isDenied) {
+    // Try to request ACCESS_FINE_LOCATION specifically for older Android versions
+    await Permission.locationWhenInUse.request();
+  }
+
+  // Bluetooth permissions
   await Permission.bluetooth.request();
   await Permission.bluetoothConnect.request();
+  await Permission.bluetoothScan.request();
+
+  // Print permission status for debugging
+  print('[Permissions] Location: ${await Permission.location.status}');
+  print(
+      '[Permissions] LocationWhenInUse: ${await Permission.locationWhenInUse.status}');
+  print('[Permissions] Bluetooth: ${await Permission.bluetooth.status}');
+  print(
+      '[Permissions] BluetoothScan: ${await Permission.bluetoothScan.status}');
+  print(
+      '[Permissions] BluetoothConnect: ${await Permission.bluetoothConnect.status}');
 }
 
 class MyApp extends StatelessWidget {

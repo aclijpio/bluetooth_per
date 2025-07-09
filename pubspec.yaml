@@ -33,7 +33,8 @@ dependencies:
 
   # Core
   cupertino_icons: ^1.0.2
-  
+
+
   # Bluetooth
   flutter_blue_classic: ^0.0.6
   
@@ -43,7 +44,7 @@ dependencies:
   sqflite_common_ffi:
   external_path: ^2.2.0
   archive: ^3.4.9
-  
+  flutter_svg: ^2.2.0
   # Permissions
   permission_handler: ^12.0.1
   

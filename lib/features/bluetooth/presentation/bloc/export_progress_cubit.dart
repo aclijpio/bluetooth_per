@@ -18,8 +18,7 @@ class ExportProgressCubit extends Cubit<ExportProgressState> {
       : super(ExportProgressState(progress: 0, isExporting: false));
 
   void start() => emit(ExportProgressState(progress: 0, isExporting: true));
-  void update(double progress) =>
-      emit(ExportProgressState(progress: progress, isExporting: true));
+  void update(double progress) => emit(ExportProgressState(progress: progress, isExporting: true));
   void finish() => emit(ExportProgressState(progress: 1, isExporting: false));
   void reset() => emit(ExportProgressState(progress: 0, isExporting: false));
 }
