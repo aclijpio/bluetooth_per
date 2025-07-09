@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../core/config/app_colors.dart';
+import '../../core/config/app_sizes.dart';
 
 class ProgressBarWithPercent extends StatelessWidget {
   final double progress;

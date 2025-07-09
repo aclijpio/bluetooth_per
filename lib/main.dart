@@ -9,6 +9,10 @@ import 'features/bluetooth/presentation/bloc/bluetooth_bloc.dart';
 import 'features/bluetooth/presentation/bloc/device_flow_cubit.dart';
 import 'core/data/main_data.dart';
 import 'package:provider/provider.dart';
+import 'core/config/app_constants.dart';
+import 'core/config/app_strings.dart';
+import 'core/config/app_theme.dart';
+import 'core/utils/app_logger.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,15 +38,12 @@ Future<void> _requestPermissions() async {
   await Permission.bluetoothConnect.request();
   await Permission.bluetoothScan.request();
 
-  // Print permission status for debugging
-  print('[Permissions] Location: ${await Permission.location.status}');
-  print(
-      '[Permissions] LocationWhenInUse: ${await Permission.locationWhenInUse.status}');
-  print('[Permissions] Bluetooth: ${await Permission.bluetooth.status}');
-  print(
-      '[Permissions] BluetoothScan: ${await Permission.bluetoothScan.status}');
-  print(
-      '[Permissions] BluetoothConnect: ${await Permission.bluetoothConnect.status}');
+  // Log permission status
+  AppLogger.permissions('${AppStrings.permissionLocation} ${await Permission.location.status}');
+  AppLogger.permissions('${AppStrings.permissionLocationWhenInUse} ${await Permission.locationWhenInUse.status}');
+  AppLogger.permissions('${AppStrings.permissionBluetooth} ${await Permission.bluetooth.status}');
+  AppLogger.permissions('${AppStrings.permissionBluetoothScan} ${await Permission.bluetoothScan.status}');
+  AppLogger.permissions('${AppStrings.permissionBluetoothConnect} ${await Permission.bluetoothConnect.status}');
 }
 
 class MyApp extends StatelessWidget {
@@ -50,9 +51,10 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      title: 'Quantor Data Transfer',
-      home: HomePage(),
+    return MaterialApp(
+      title: AppConstants.appTitle,
+      theme: AppTheme.lightTheme,
+      home: const HomePage(),
     );
   }
 }
