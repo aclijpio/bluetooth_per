@@ -114,10 +114,36 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                         if (sendState is ProcessingSendingState) {
                           return Column(
                             children: [
-                              LinearProgressIndicator(value: sendState.percent),
-                              const SizedBox(height: 8),
-                              Text(
-                                  'Экспорт: ${(sendState.percent * 100).toStringAsFixed(0)}%'),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: LinearProgressIndicator(
+                                        value: sendState.percent,
+                                        minHeight: 16,
+                                        backgroundColor: Colors.grey[300],
+                                        valueColor:
+                                            const AlwaysStoppedAnimation<Color>(
+                                                Color(0xFF0B78CC)),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  SizedBox(
+                                    width: 45,
+                                    child: Text(
+                                      '${(sendState.percent * 100).toStringAsFixed(0)}%',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Color(0xFF424242),
+                                      ),
+                                      textAlign: TextAlign.end,
+                                    ),
+                                  ),
+                                ],
+                              ),
                               const SizedBox(height: 8),
                               ElevatedButton(
                                 onPressed: () {
@@ -224,35 +250,7 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
     } else if (state is PendingArchivesState) {
       return _PendingArchivesBody(paths: state.dbPaths);
     } else if (state is ExportSuccessState) {
-      // Убираем ExportSuccessState, всегда показываем таблицу
       return const SizedBox.shrink();
-    } else if (state is NetErrorState) {
-      final mainData = context.read<MainData>();
-      final displayName = ArchiveSyncManager.getDisplayName(state.dbPath);
-      final operations = mainData.operations;
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                ArchiveTable(
-                  entry: ArchiveEntry(
-                    fileName: displayName,
-                    sizeBytes: 0,
-                  ),
-                  operations: operations,
-                  onSelectionChanged: (selected) {
-                    setState(() {
-                      _hasTableSelection = selected;
-                    });
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
     } else if (state is DbErrorState) {
       return Center(
         child: Column(
@@ -271,6 +269,18 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                 context.read<DeviceFlowCubit>().reset();
               },
               child: const Text('Назад'),
+            ),
+          ],
+        ),
+      );
+    } else if (state is ExceptionState) {
+      return Expanded(
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: state.infoWidget,
+              ),
             ),
           ],
         ),
@@ -333,7 +343,14 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
         onPressed: null,
         enabled: false,
       );
-    } else if (state is TableViewState) {
+    } else if (state is ExceptionState){
+      return PrimaryButton(
+        label: 'ОК',
+        onPressed: state.onOkPressed,
+      );
+    }
+
+    else if (state is TableViewState) {
       final mainData = context.read<MainData>();
       final hasActive = mainData.operations.any((op) => op.canSend);
       final hasSelected =
@@ -349,15 +366,35 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
             builder: (context, progressState) {
               if (progressState.isExporting) {
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 8, left: 6, right: 6),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: LinearProgressIndicator(
-                      value: progressState.progress,
-                      minHeight: 6,
-                      color: const Color(0xFF2E6FED),
-                      backgroundColor: const Color(0xFFC0D5F2),
-                    ),
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(
+                            value: progressState.progress,
+                            minHeight: 16,
+                            backgroundColor: const Color(0xFFC0D5F2),
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                                Color(0xFF2E6FED)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 45,
+                        child: Text(
+                          '${(progressState.progress * 100).toStringAsFixed(0)}%',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF424242),
+                          ),
+                          textAlign: TextAlign.end,
+                        ),
+                      ),
+                    ],
                   ),
                 );
               }
@@ -398,15 +435,35 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
             builder: (context, progressState) {
               if (progressState.isExporting) {
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 8, left: 6, right: 6),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: LinearProgressIndicator(
-                      value: progressState.progress,
-                      minHeight: 6,
-                      color: const Color(0xFF2E6FED),
-                      backgroundColor: const Color(0xFFC0D5F2),
-                    ),
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(
+                            value: progressState.progress,
+                            minHeight: 16,
+                            backgroundColor: const Color(0xFFC0D5F2),
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                                Color(0xFF2E6FED)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 45,
+                        child: Text(
+                          '${(progressState.progress * 100).toStringAsFixed(0)}%',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF424242),
+                          ),
+                          textAlign: TextAlign.end,
+                        ),
+                      ),
+                    ],
                   ),
                 );
               }
@@ -427,13 +484,9 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
           context.read<DeviceFlowCubit>().reset();
         },
       );
-    } else if (state is NetErrorState) {
-      return PrimaryButton(
-        label: 'Запрос',
-        onPressed: () async {
-          await context.read<DeviceFlowCubit>().loadLocalArchive(state.dbPath);
-        },
-      );
+    } else if (state is ExceptionState) {
+      // Не показываем нижнюю кнопку, так как кнопка ОК уже есть в теле
+      return const SizedBox.shrink();
     }
     return const SizedBox.shrink();
   }
@@ -661,53 +714,65 @@ class ArchiveTile extends StatelessWidget {
   final String name;
   final String date;
   final VoidCallback? onTap;
-  const ArchiveTile(
-      {super.key, required this.name, required this.date, this.onTap});
+  final VoidCallback? onLongPress;
+  const ArchiveTile({
+    super.key,
+    required this.name,
+    required this.date,
+    this.onTap,
+    this.onLongPress,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(27),
-      child: Container(
-        height: 60,
-        padding: const EdgeInsets.symmetric(horizontal: 30),
-        decoration: BoxDecoration(
-          color: const Color(0xFFE7F2FA),
-          borderRadius: BorderRadius.circular(27),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Icon(Icons.archive_outlined,
-                color: Color(0xFF0B78CC), size: 28),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF222222),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        borderRadius: BorderRadius.circular(27),
+        highlightColor: const Color(0xFF0B78CC).withOpacity(0.1),
+        splashColor: const Color(0xFF0B78CC).withOpacity(0.2),
+        child: Ink(
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 30),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE7F2FA),
+            borderRadius: BorderRadius.circular(27),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Icon(Icons.archive_outlined,
+                  color: Color(0xFF0B78CC), size: 28),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF222222),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    date,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF5F5F5F),
+                    const SizedBox(height: 2),
+                    Text(
+                      date,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF5F5F5F),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const Icon(Icons.arrow_forward, color: Color(0xFF0B78CC)),
-          ],
+              const Icon(Icons.arrow_forward, color: Color(0xFF0B78CC)),
+            ],
+          ),
         ),
       ),
     );
@@ -734,6 +799,68 @@ class _PendingArchivesBody extends StatelessWidget {
     }
   }
 
+  Future<void> _showDeleteDialog(
+      BuildContext context, String path, String displayName) async {
+    final cubit = context.read<DeviceFlowCubit>();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'Удалить архив?',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Вы действительно хотите удалить архив "$displayName" из списка неотправленных?',
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Это действие нельзя отменить.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.red,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                'Отмена',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+              child: const Text('Удалить'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result == true) {
+      await cubit.deletePendingArchive(path);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayNames = {
@@ -748,6 +875,14 @@ class _PendingArchivesBody extends StatelessWidget {
             color: Color(0xFF222222),
             fontSize: 24,
             fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Удерживайте архив для удаления из списка',
+          style: TextStyle(
+            color: Color(0xFF5F5F5F),
+            fontSize: 14,
           ),
         ),
         const SizedBox(height: 20),
@@ -769,6 +904,9 @@ class _PendingArchivesBody extends StatelessWidget {
                           onTap: () {
                             final cubit = context.read<DeviceFlowCubit>();
                             cubit.loadLocalArchive(p);
+                          },
+                          onLongPress: () {
+                            _showDeleteDialog(context, p, fileName);
                           },
                         ),
                       );

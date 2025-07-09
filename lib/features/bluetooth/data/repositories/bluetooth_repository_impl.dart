@@ -192,7 +192,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   }
 
   @override
-  Future<Either<Failure, List<String>>> getFileList() async {
+  Future<Either<Failure, List<String>>> getReadyArchive() async {
     if (_readyArchivePath != null) {
       return Right([_readyArchivePath!]);
     }
@@ -327,7 +327,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       // Reuse уже открытое соединение, если оно есть
       BluetoothConnection? connection = _connection;
       int retryCount = 0;
-      const maxRetries = 3;
+      const maxRetries = 2;
 
       while (retryCount < maxRetries && !_isCancelled) {
         try {
@@ -375,17 +375,8 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
               if (expectedFileSize > 0 && receivedBytes >= expectedFileSize) {
                 await flushSink();
                 await closeSink();
-                print('File download completed successfully');
-                print('Всего bytes received: ${allReceivedData.length}');
-                print('Размер файла: $expectedFileSize');
-                print(
-                    'Первые 20 numbers: ${allReceivedData.take(20).map((b) => b & 0xFF).join(', ')}');
-                print(
-                    'Последнии 20 numbers: ${allReceivedData.reversed.take(20).toList().reversed.map((b) => b & 0xFF).join(', ')}');
-                // -------- Сохраняем в <documents>/download/quan --------
                 String finalPath;
                 if (!switchedToFile) {
-                  // Всё в памяти
                   final bytes = memoryBuffer.takeBytes();
                   if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
                     try {
@@ -411,7 +402,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
                     responseCompleter.complete(true);
                   }
                 } else {
-                  // Данные были сброшены в файл
                   if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
                     try {
                       final rawFile =

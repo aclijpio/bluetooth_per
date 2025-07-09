@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../common/config.dart';
 import 'package:external_path/external_path.dart';
 import 'package:flutter/foundation.dart';
+import 'export_status_manager.dart';
 
 class ArchiveSyncManager {
   ArchiveSyncManager._();
@@ -18,6 +19,7 @@ class ArchiveSyncManager {
     }
     return archiveDir;
   }
+
   static Future<List<String>> getPending() async {
     final archiveDir = await getArchivesDirectory();
     if (!await archiveDir.exists()) {
@@ -36,7 +38,9 @@ class ArchiveSyncManager {
   }
 
   static Future<void> addPending(String path) async {
-    await getPending();
+    // Этот метод теперь не нужен, так как файл уже создается с суффиксом NEED_EXPORT
+    // при загрузке в BluetoothRepositoryImpl
+    print('[ArchiveSyncManager] addPending called for: $path');
   }
 
   static Future<void> markExported(String pendingPath) async {
@@ -66,61 +70,19 @@ class ArchiveSyncManager {
     print('[ArchiveSyncManager] getDisplayName: path=$path display=$display');
     return display;
   }
-}
 
-class ExportStatusManager {
-  static Future<File> _getStatusFile() async {
-    final downloadsDir = await getDownloadsDirectory();
-    final archiveDir =
-        Directory(p.join(downloadsDir!.path, AppConfig.archivesDirName));
-    if (!await archiveDir.exists()) {
-      await archiveDir.create(recursive: true);
-    }
-    return File(p.join(archiveDir.path, 'export_status.json'));
-  }
-
-  static Future<Map<String, dynamic>> _readStatus() async {
-    final file = await _getStatusFile();
+  // Удаляет архив из списка ожидающих (удаляет файл)
+  static Future<void> deletePending(String path) async {
+    final file = File(path);
     if (await file.exists()) {
-      final content = await file.readAsString();
-      return jsonDecode(content) as Map<String, dynamic>;
+      await file.delete();
+      print('[ArchiveSyncManager] deletePending: deleted file at $path');
+
+      // Также удаляем статус экспорта из ExportStatusManager
+      final fileName = p.basename(path);
+      await ExportStatusManager.removeArchiveStatus(fileName);
+    } else {
+      print('[ArchiveSyncManager] deletePending: file not found at $path');
     }
-    return {};
-  }
-
-  static Future<void> _writeStatus(Map<String, dynamic> data) async {
-    final file = await _getStatusFile();
-    await file.writeAsString(jsonEncode(data), flush: true);
-  }
-
-  static Future<Map<String, dynamic>?> getArchiveStatus(String fileName) async {
-    final data = await _readStatus();
-    return data[fileName] as Map<String, dynamic>?;
-  }
-
-  static Future<void> setArchiveStatus(
-      String fileName, String status, List<int> exportedOps) async {
-    final data = await _readStatus();
-    data[fileName] = {
-      'status': status,
-      'exported_ops': exportedOps,
-    };
-    await _writeStatus(data);
-  }
-
-  static Future<void> addExportedOp(String fileName, int opDt) async {
-    final data = await _readStatus();
-    final entry = data[fileName] as Map<String, dynamic>? ??
-        {
-          'status': 'pending',
-          'exported_ops': [],
-        };
-    final ops = List<int>.from(entry['exported_ops'] ?? []);
-    if (!ops.contains(opDt)) ops.add(opDt);
-    entry['exported_ops'] = ops;
-    // Обновляем статус
-    entry['status'] = 'partial'; // или 'exported', если все
-    data[fileName] = entry;
-    await _writeStatus(data);
   }
 }

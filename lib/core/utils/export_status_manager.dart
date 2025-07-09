@@ -62,4 +62,11 @@ class ExportStatusManager {
     data[fileName] = entry;
     await _writeStatus(data);
   }
+
+  // Удалить статус архива
+  static Future<void> removeArchiveStatus(String fileName) async {
+    final data = await _readStatus();
+    data.remove(fileName);
+    await _writeStatus(data);
+  }
 }

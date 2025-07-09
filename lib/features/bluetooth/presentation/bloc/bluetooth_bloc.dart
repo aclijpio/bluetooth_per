@@ -183,7 +183,7 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
         downloadInfo: connectedState.downloadInfo,
       ));
 
-      final result = await repository.getFileList();
+      final result = await repository.getReadyArchive();
 
       if (!emit.isDone) {
         result.fold(

@@ -13,7 +13,7 @@ abstract class BluetoothRepository {
   Future<Either<Failure, bool>> connectToDevice(BluetoothDeviceEntity device);
   Future<Either<Failure, bool>> disconnectFromDevice(
       BluetoothDeviceEntity device);
-  Future<Either<Failure, List<String>>> getFileList();
+  Future<Either<Failure, List<String>>> getReadyArchive();
   Future<Either<Failure, bool>> downloadFile(
     String fileName,
     BluetoothDeviceEntity device, {

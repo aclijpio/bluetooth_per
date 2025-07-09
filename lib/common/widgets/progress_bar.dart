@@ -12,17 +12,33 @@ class ProgressBarWithPercent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
       children: [
-        LinearProgressIndicator(
-          value: progress.clamp(0.0, 1.0),
-          backgroundColor: Colors.grey[300],
-          valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0B78CC)),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10), // Закругляем прогресс бар
+            child: LinearProgressIndicator(
+              value: progress.clamp(0.0, 1.0),
+              backgroundColor: Colors.grey[300],
+              minHeight: 16, // Увеличиваем высоту для лучшего вида
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(Color(0xFF0B78CC)),
+            ),
+          ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          text ?? '${(progress * 100).toInt()}%',
-          style: const TextStyle(fontSize: 14),
+        const SizedBox(width: 12), // Отступ между прогресс баром и процентами
+        SizedBox(
+          width:
+              45, // Фиксированная ширина для процентов, чтобы они не толкали прогресс бар
+          child: Text(
+            text ?? '${(progress * 100).toInt()}%',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF424242),
+            ),
+            textAlign: TextAlign.end, // Выравниваем проценты по правому краю
+          ),
         ),
       ],
     );

@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import '../models/device.dart';
 import '../models/archive_entry.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
+import 'package:flutter/material.dart';
 
 // Base class for all states.
 abstract class DeviceFlowState extends Equatable {
@@ -14,7 +15,6 @@ abstract class DeviceFlowState extends Equatable {
 // 1) Initial screen where user can start searching for devices.
 class InitialSearchState extends DeviceFlowState {
   const InitialSearchState();
-
 }
 
 class PendingArchivesState extends DeviceFlowState {
@@ -164,4 +164,18 @@ class NetErrorState extends DeviceFlowState {
 
   @override
   List<Object?> get props => [dbPath];
+}
+
+// Универсальное состояние для обработки ошибок
+class ExceptionState extends DeviceFlowState {
+  final Widget infoWidget;
+  final VoidCallback onOkPressed;
+
+  const ExceptionState({
+    required this.infoWidget,
+    required this.onOkPressed,
+  });
+
+  @override
+  List<Object?> get props => [infoWidget, onOkPressed];
 }
