@@ -10,35 +10,25 @@ class AppConfig {
   static const String notExportedSuffix = '_NEED_EXPORT';
   static const String dbExtension = '.db';
 
-  /// Таймаут для стандартного веб-запроса
   static const Duration webRequestTimeout = Duration(seconds: 15);
 
-  /// Таймаут для долгих запросов (например, загрузка больших файлов)
   static const Duration longRequestTimeout = Duration(seconds: 100);
 
-  /// Короткая задержка для UI (например, перед переходом на другой экран)
   static const Duration uiShortDelay = Duration(seconds: 1);
 
-  /// Задержка перед повторной попыткой подключения к серверу
   static const Duration serverConnectionRetryDelay = Duration(seconds: 2);
 
-  /// Базовая задержка для экспоненциальной выдержки при подключении к серверу
   static const Duration serverConnectionExponentialBackoffBase =
       Duration(seconds: 1);
 
-  /// Таймаут на поиск блютуз устройств
   static const Duration bluetoothSearchDelay = Duration(seconds: 1);
 
-  /// Таймаут для выполнения шага в сценарии работы с устройством
-  static const Duration deviceFlowTimeout = Duration(seconds: 30);
+  static const Duration deviceFlowTimeout = Duration(seconds: 15);
 
-  /// Таймаут для получения готового архива
   static const Duration readyArchiveTimeout = Duration(seconds: 10);
 
-  /// Длительность попытки выполнения операции
   static const Duration attemptDuration = Duration(seconds: 50);
 
-  /// Таймаут выполнения блютуз команды
   static const Duration bluetoothCommandTimeout = Duration(seconds: 15);
 
   static const Duration shortDelay = Duration(milliseconds: 500);

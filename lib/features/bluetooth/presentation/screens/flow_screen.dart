@@ -88,7 +88,8 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                         state is ExportProgressState ||
                         state is SearchingStateWithDevices ||
                         state is BluetoothDisabledState ||
-                        state is NetErrorState)
+                        state is NetErrorState ||
+                        state is DownloadingState)
                       MainMenuButton(
                         onPressed: () {
                           context.read<TransferCubit>().reset();
@@ -99,7 +100,8 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                                 state is UploadingState ||
                                 state is RefreshingState ||
                                 state is DownloadingState ||
-                                state is SearchingStateWithDevices,
+                                state is SearchingStateWithDevices ||
+                                state is DownloadingState,
                       ),
                     if (/*state is SearchingState ||*/
                         state is DeviceListState ||
@@ -141,7 +143,6 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                         }
                       },
                     ),
-                    // Bottom button (поиск, скачать и т.д.)
                     _buildBottomButton(state, cubit),
                   ],
                 );

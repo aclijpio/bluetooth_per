@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../core/widgets/primary_button.dart';
 import '../../bloc/transfer_state.dart';
 
 class InfoMessageBody extends StatelessWidget {
@@ -17,10 +18,10 @@ class InfoMessageBody extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           state.content,
-          const SizedBox(height: 24),
-          ElevatedButton(
+          Spacer(),
+          PrimaryButton(
+            label: state.buttonText,
             onPressed: state.onButtonPressed,
-            child: Text(state.buttonText),
           ),
         ],
       ),

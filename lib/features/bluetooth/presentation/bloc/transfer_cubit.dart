@@ -67,21 +67,17 @@ class TransferCubit extends Cubit<TransferState> {
   }
 
   Future<void> startScanning() async {
-    print('[TransferCubit] Начинаем сканирование устройств...');
     _searching = true;
     emit(const SearchingState());
 
     _lastFoundDevices.clear();
     final result = await _repository.scanForDevices(
       onDeviceFound: (entity) {
-        print(
-            '[TransferCubit] Найдено устройство: ${entity.name} (${entity.address})');
         if (!_searching) return;
         final device = _toUi(entity);
         if (!_lastFoundDevices.any((d) => d.macAddress == device.macAddress)) {
           _lastFoundDevices.add(device);
-          print(
-              '[TransferCubit] Добавлено устройство в список: ${device.name}');
+
           emit(SearchingStateWithDevices(List<Device>.from(_lastFoundDevices)));
         }
       },
@@ -89,15 +85,12 @@ class TransferCubit extends Cubit<TransferState> {
 
     result.fold(
       (failure) {
-        print('[TransferCubit] Ошибка сканирования: ${failure.message}');
         if (!_searching || _isActiveState()) return;
         _searching = false;
 
         if (failure.message == 'BLUETOOTH_DISABLED') {
-          print('[TransferCubit] Bluetooth выключен');
           emit(const BluetoothDisabledState());
         } else if (failure.message.contains('разрешение')) {
-          print('[TransferCubit] Проблема с разрешениями: ${failure.message}');
           emit(InfoMessageState(
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -128,13 +121,12 @@ class TransferCubit extends Cubit<TransferState> {
                 ),
               ],
             ),
+            buttonText: 'К списку устройств',
             onButtonPressed: () {
-              _loadPending();
+              emit(DeviceListState(_lastFoundDevices));
             },
           ));
         } else {
-          print(
-              '[TransferCubit] Другая ошибка сканирования: ${failure.message}');
           emit(InfoMessageState(
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -165,26 +157,22 @@ class TransferCubit extends Cubit<TransferState> {
                 ),
               ],
             ),
+            buttonText: 'К списку устройств',
             onButtonPressed: () {
-              _loadPending();
+              emit(DeviceListState(_lastFoundDevices));
             },
           ));
         }
       },
       (entities) {
-        print(
-            '[TransferCubit] Сканирование завершено. Найдено ${entities.length} устройств');
         if (!_searching || _isActiveState()) return;
         final devices = entities.map(_toUi).toList();
         _lastFoundDevices.clear();
         _lastFoundDevices.addAll(devices);
         _searching = false;
         if (devices.isEmpty) {
-          print(
-              '[TransferCubit] Устройства не найдены, показываем pending архивы');
           _loadPending();
         } else {
-          print('[TransferCubit] Показываем список найденных устройств');
           emit(DeviceListState(devices));
         }
       },
@@ -226,49 +214,88 @@ class TransferCubit extends Cubit<TransferState> {
       if (!connected) return;
 
       try {
+        bool receivedAnyResponse = false;
+
         await for (final status in _repository.requestArchiveUpdate().timeout(
           AppConfig.deviceFlowTimeout,
           onTimeout: (sink) {
             sink.close();
           },
         )) {
+          receivedAnyResponse = true;
+
           if (status == 'ARCHIVE_UPDATING') {
             emit(RefreshingState(device));
-          } else if (status == 'ARCHIVE_READY') {
+          } else if (status == 'ARCHIVE_READY' ||
+              status.startsWith('ARCHIVE_READY:')) {
             break;
+          } else if (status == 'NOT_CONNECTED') {
+            throw Exception('Соединение с устройством потеряно');
           }
         }
+
+        if (!receivedAnyResponse) {
+          throw Exception('Нет ответа от устройства');
+        }
       } catch (e) {
+        String errorTitle = 'Ошибка связи с устройством';
+        String errorMessage = 'Проверьте соединение и повторите попытку';
+        IconData errorIcon = Icons.error_outline;
+        Color iconColor = Colors.red.withOpacity(0.7);
+
+        if (e.toString().contains('Нет ответа от устройства')) {
+          errorTitle = 'Нет ответа от устройства';
+          errorMessage =
+              'Устройство не отвечает на запросы.\nПроверьте:\n• Запущен ли ТМС на устройстве\n• Стабильность Bluetooth соединения';
+          errorIcon = Icons.bluetooth_disabled;
+          iconColor = Colors.orange.withOpacity(0.7);
+        } else if (e.toString().contains('Соединение с устройством потеряно')) {
+          errorTitle = 'Соединение потеряно';
+          errorMessage =
+              'Bluetooth соединение прервано.\nПереподключитесь к устройству';
+          errorIcon = Icons.bluetooth_disabled;
+          iconColor = Colors.red.withOpacity(0.7);
+        } else if (e.toString().contains('TimeoutException')) {
+          errorTitle = 'Превышено время ожидания';
+          errorMessage =
+              'Устройство не ответило в течение 30 секунд.\nПопробуйте еще раз';
+          errorIcon = Icons.access_time;
+          iconColor = Colors.orange.withOpacity(0.7);
+        }
+
         emit(InfoMessageState(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.bluetooth_disabled,
-                size: 64,
-                color: Colors.orange.withOpacity(0.7),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Нет ответа от Bluetooth сервера',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: AppConfig.secondaryTextColor,
-                  fontWeight: FontWeight.w500,
+          content: Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  errorIcon,
+                  size: 64,
+                  color: iconColor,
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Проверьте, запущен ли ТМС на подключаемом устройстве',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppConfig.tertiaryTextColor,
+                const SizedBox(height: 16),
+                Text(
+                  errorTitle,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    color: AppConfig.secondaryTextColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
-              ),
-            ],
+                Text(
+                  errorMessage,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppConfig.tertiaryTextColor,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           ),
+
+          buttonText: 'К списку устройств',
           onButtonPressed: () {
             emit(DeviceListState(_lastFoundDevices));
           },
@@ -403,6 +430,13 @@ class TransferCubit extends Cubit<TransferState> {
     if (netStatus != OperStatus.ok) {
       await ArchiveSyncManager.addPending(filePath);
       emit(NetErrorState(filePath));
+    } else {
+      // Проверяем: если нет операций для отправки, сразу помечаем архив как экспортированный
+      final operationsToSend =
+          _mainData.operations.where((op) => op.canSend).toList();
+      if (operationsToSend.isEmpty) {
+        await ArchiveSyncManager.markExported(filePath);
+      }
     }
   }
 
@@ -464,6 +498,13 @@ class TransferCubit extends Cubit<TransferState> {
 
     if (netStatus != OperStatus.ok) {
       emit(NetErrorState(dbPath));
+    } else {
+      // Проверяем: если нет операций для отправки, сразу помечаем архив как экспортированный
+      final operationsToSend =
+          _mainData.operations.where((op) => op.canSend).toList();
+      if (operationsToSend.isEmpty) {
+        await ArchiveSyncManager.markExported(dbPath);
+      }
     }
   }
 
