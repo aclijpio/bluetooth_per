@@ -13,6 +13,7 @@ class BaseCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: AppConfig.largeBorderRadius,
       child: Container(
+        width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
         decoration: BoxDecoration(
           color: AppConfig.cardBackgroundColor,

@@ -87,7 +87,8 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
                         state is TableViewState ||
                         state is ExportProgressState ||
                         state is SearchingStateWithDevices ||
-                        state is BluetoothDisabledState)
+                        state is BluetoothDisabledState ||
+                        state is NetErrorState)
                       MainMenuButton(
                         onPressed: () {
                           context.read<TransferCubit>().reset();
@@ -164,14 +165,26 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
     } else if (state is ConnectedState) {
       return ConnectedBody(state: state);
     } else if (state is UploadingState) {
-      return ConnectedDeviceCard(
-        name: state.connectedDevice.name.replaceAll("Quantor", ""),
-        macAddress: state.connectedDevice.macAddress,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ConnectedDeviceCard(
+            name: state.connectedDevice.name.replaceAll("Quantor", ""),
+            macAddress: state.connectedDevice.macAddress,
+          ),
+          Spacer()
+        ],
       );
     } else if (state is RefreshingState) {
-      return ConnectedDeviceCard(
-        name: state.connectedDevice.name.replaceAll("Quantor", ""),
-        macAddress: state.connectedDevice.macAddress,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ConnectedDeviceCard(
+            name: state.connectedDevice.name.replaceAll("Quantor", ""),
+            macAddress: state.connectedDevice.macAddress,
+          ),
+          Spacer()
+        ],
       );
     } else if (state is DownloadingState) {
       return DownloadingBody(state: state);

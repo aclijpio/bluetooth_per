@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:bluetooth_per/features/bluetooth/presentation/screens/flow_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -41,14 +43,33 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _requestPermissions() async {
-    // Запрашиваем основные разрешения
-    await [
+    // Запрашиваем основные разрешения в зависимости от версии Android
+    List<Permission> permissionsToRequest = [
       Permission.location,
-      Permission.bluetooth,
-      Permission.bluetoothConnect,
-      Permission.bluetoothScan,
       Permission.storage,
-    ].request();
+    ];
+
+    // Добавляем Bluetooth разрешения в зависимости от API level
+    try {
+      if (Platform.isAndroid) {
+        permissionsToRequest.addAll([
+          Permission.bluetoothConnect,
+          Permission.bluetoothScan,
+          Permission.bluetoothAdvertise,
+        ]);
+      } else {
+        permissionsToRequest.addAll([
+          Permission.bluetooth,
+        ]);
+      }
+    } catch (e) {
+      // Fallback для старых версий
+      permissionsToRequest.add(Permission.bluetooth);
+    }
+
+    print(
+        '[Main] Запрашиваем разрешения: ${permissionsToRequest.map((p) => p.toString()).join(', ')}');
+    await permissionsToRequest.request();
 
     // Проверяем и запрашиваем разрешение на доступ ко всем файлам
     final manageStorageStatus = await Permission.manageExternalStorage.status;

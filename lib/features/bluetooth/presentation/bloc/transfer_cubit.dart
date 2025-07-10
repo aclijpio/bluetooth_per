@@ -67,16 +67,21 @@ class TransferCubit extends Cubit<TransferState> {
   }
 
   Future<void> startScanning() async {
+    print('[TransferCubit] Начинаем сканирование устройств...');
     _searching = true;
     emit(const SearchingState());
 
     _lastFoundDevices.clear();
     final result = await _repository.scanForDevices(
       onDeviceFound: (entity) {
+        print(
+            '[TransferCubit] Найдено устройство: ${entity.name} (${entity.address})');
         if (!_searching) return;
         final device = _toUi(entity);
         if (!_lastFoundDevices.any((d) => d.macAddress == device.macAddress)) {
           _lastFoundDevices.add(device);
+          print(
+              '[TransferCubit] Добавлено устройство в список: ${device.name}');
           emit(SearchingStateWithDevices(List<Device>.from(_lastFoundDevices)));
         }
       },
@@ -84,25 +89,102 @@ class TransferCubit extends Cubit<TransferState> {
 
     result.fold(
       (failure) {
+        print('[TransferCubit] Ошибка сканирования: ${failure.message}');
         if (!_searching || _isActiveState()) return;
         _searching = false;
 
         if (failure.message == 'BLUETOOTH_DISABLED') {
+          print('[TransferCubit] Bluetooth выключен');
           emit(const BluetoothDisabledState());
         } else if (failure.message.contains('разрешение')) {
+          print('[TransferCubit] Проблема с разрешениями: ${failure.message}');
+          emit(InfoMessageState(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.security,
+                  size: 64,
+                  color: AppConfig.errorColor,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Нет разрешений для поиска устройств',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: AppConfig.secondaryTextColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  failure.message,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppConfig.tertiaryTextColor,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+            onButtonPressed: () {
+              _loadPending();
+            },
+          ));
         } else {
-          _loadPending();
+          print(
+              '[TransferCubit] Другая ошибка сканирования: ${failure.message}');
+          emit(InfoMessageState(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: AppConfig.errorColor,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Ошибка поиска устройств',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: AppConfig.secondaryTextColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  failure.message,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppConfig.tertiaryTextColor,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+            onButtonPressed: () {
+              _loadPending();
+            },
+          ));
         }
       },
       (entities) {
+        print(
+            '[TransferCubit] Сканирование завершено. Найдено ${entities.length} устройств');
         if (!_searching || _isActiveState()) return;
         final devices = entities.map(_toUi).toList();
         _lastFoundDevices.clear();
         _lastFoundDevices.addAll(devices);
         _searching = false;
         if (devices.isEmpty) {
+          print(
+              '[TransferCubit] Устройства не найдены, показываем pending архивы');
           _loadPending();
         } else {
+          print('[TransferCubit] Показываем список найденных устройств');
           emit(DeviceListState(devices));
         }
       },
@@ -300,8 +382,7 @@ class TransferCubit extends Cubit<TransferState> {
     final netStatus = await _mainData.awaitOperationsCanSendStatus();
 
     final filteredOps = _mainData.operations
-        .where((op) =>
-            (op.canSend == true || op.exported == true))
+        .where((op) => (op.canSend == true || op.exported == true))
         .toList();
     final rows = filteredOps.map((op) {
       final dt = DateTime.fromMillisecondsSinceEpoch(op.dt * 1000);

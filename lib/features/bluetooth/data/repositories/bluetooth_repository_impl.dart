@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dartz/dartz.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -51,39 +52,110 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         return Left(BluetoothFailure(message: 'BLUETOOTH_DISABLED'));
       }
 
-      // 2. Проверяем разрешения
+      // 2. Проверяем разрешения в зависимости от версии Android
       final permissionsToRequest = <Permission>[];
-      final locationPermissions = <Permission>[
-        Permission.location,
-        Permission.locationWhenInUse
-      ];
 
-      // Android 12+
-      if (await Permission.bluetoothScan.isDenied) {
-        permissionsToRequest.add(Permission.bluetoothScan);
-      }
-      if (await Permission.bluetoothConnect.isDenied) {
-        permissionsToRequest.add(Permission.bluetoothConnect);
-      }
+      // Получаем версию Android
+      final androidVersion =
+          Platform.isAndroid ? await _getAndroidVersion() : 0;
 
-      // Android 11 и ниже
-      if (!(await Permission.bluetooth.isGranted)) {
-        permissionsToRequest.add(Permission.bluetooth);
-      }
+      if (androidVersion >= 31) {
+        // Android 12+ (API 31+)
+        // Для Android 12+ нужны новые разрешения
+        if (await Permission.bluetoothScan.isDenied) {
+          permissionsToRequest.add(Permission.bluetoothScan);
+        }
+        if (await Permission.bluetoothConnect.isDenied) {
+          permissionsToRequest.add(Permission.bluetoothConnect);
+        }
 
-      bool hasLocation = false;
-      for (final p in locationPermissions) {
-        if (await p.isGranted) {
-          hasLocation = true;
-          break;
+        // Дополнительные разрешения для Android 15+ (API 35+)
+        if (androidVersion >= 35) {
+          // Android 15 может требовать дополнительные разрешения
+          if (await Permission.bluetoothAdvertise.isDenied) {
+            permissionsToRequest.add(Permission.bluetoothAdvertise);
+          }
+        }
+      } else if (androidVersion >= 23) {
+        // Android 6-11 (API 23-30)
+        // Для Android 6-11 нужны старые разрешения + геолокация
+        if (await Permission.bluetooth.isDenied) {
+          permissionsToRequest.add(Permission.bluetooth);
+        }
+
+        // Геолокация обязательна для сканирования на Android 6-11
+        if (await Permission.location.isDenied) {
+          permissionsToRequest.add(Permission.location);
+        }
+      } else {
+        // Для старых версий Android (до API 23)
+        if (await Permission.bluetooth.isDenied) {
+          permissionsToRequest.add(Permission.bluetooth);
         }
       }
-      if (!hasLocation) {
-        permissionsToRequest.addAll(locationPermissions);
+
+      // Запрашиваем все необходимые разрешения
+      if (permissionsToRequest.isNotEmpty) {
+        print(
+            '[BluetoothRepository] Запрашиваем разрешения: ${permissionsToRequest.map((p) => p.toString()).join(', ')}');
+
+        final Map<Permission, PermissionStatus> results =
+            await permissionsToRequest.request();
+
+        print('[BluetoothRepository] Результаты запроса разрешений:');
+        for (final entry in results.entries) {
+          print('  ${entry.key}: ${entry.value}');
+        }
+
+        // Проверяем, что все критически важные разрешения получены
+        final deniedPermissions = <Permission>[];
+        final permanentlyDeniedPermissions = <Permission>[];
+
+        for (final permission in permissionsToRequest) {
+          final status = results[permission] ?? PermissionStatus.denied;
+          if (status == PermissionStatus.permanentlyDenied) {
+            permanentlyDeniedPermissions.add(permission);
+          } else if (status == PermissionStatus.denied) {
+            deniedPermissions.add(permission);
+          }
+        }
+
+        if (permanentlyDeniedPermissions.isNotEmpty) {
+          return Left(BluetoothFailure(
+              message:
+                  'Разрешения отклонены навсегда: ${permanentlyDeniedPermissions.map((p) => p.toString()).join(', ')}. Включите их в настройках приложения'));
+        }
+
+        if (deniedPermissions.isNotEmpty) {
+          return Left(BluetoothFailure(
+              message:
+                  'Разрешения отклонены: ${deniedPermissions.map((p) => p.toString()).join(', ')}. Поиск устройств невозможен без разрешений'));
+        }
       }
 
-      if (permissionsToRequest.isNotEmpty) {
-        await permissionsToRequest.request();
+      // Финальная проверка - убеждаемся что все разрешения действительно есть
+      final missingPermissions = <String>[];
+
+      if (androidVersion >= 31) {
+        if (await Permission.bluetoothScan.isDenied) {
+          missingPermissions.add('BLUETOOTH_SCAN');
+        }
+        if (await Permission.bluetoothConnect.isDenied) {
+          missingPermissions.add('BLUETOOTH_CONNECT');
+        }
+      } else if (androidVersion >= 23) {
+        if (await Permission.bluetooth.isDenied) {
+          missingPermissions.add('BLUETOOTH');
+        }
+        if (await Permission.location.isDenied) {
+          missingPermissions.add('LOCATION');
+        }
+      }
+
+      if (missingPermissions.isNotEmpty) {
+        return Left(BluetoothFailure(
+            message:
+                'Отсутствуют критически важные разрешения: ${missingPermissions.join(', ')}. Перезапустите приложение и предоставьте все необходимые разрешения'));
       }
 
       return const Right(true);
@@ -92,57 +164,151 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     }
   }
 
+  /// Получает версию Android API
+  Future<int> _getAndroidVersion() async {
+    try {
+      if (Platform.isAndroid) {
+        final deviceInfo = DeviceInfoPlugin();
+        final androidInfo = await deviceInfo.androidInfo;
+        final sdkInt = androidInfo.version.sdkInt;
+        print('[BluetoothRepository] Версия Android API: $sdkInt');
+        return sdkInt;
+      }
+      return 0;
+    } catch (e) {
+      print('Ошибка получения версии Android: $e');
+      // Возвращаем 35 (Android 15) как современное значение по умолчанию
+      // Это обеспечит запрос всех необходимых разрешений для новейших версий
+      return 35;
+    }
+  }
+
   @override
   Future<Either<Failure, List<BluetoothDeviceEntity>>> scanForDevices(
       {void Function(BluetoothDeviceEntity)? onDeviceFound}) async {
+    print('[BluetoothRepository] Проверяем состояние Bluetooth...');
+
+    // Проверяем включен ли Bluetooth
+    final bluetoothEnabledResult = await isBluetoothEnabled();
+    bool bluetoothEnabled = false;
+    bluetoothEnabledResult.fold(
+      (failure) {
+        print(
+            '[BluetoothRepository] Ошибка проверки Bluetooth: ${failure.message}');
+        bluetoothEnabled = false;
+      },
+      (enabled) {
+        print('[BluetoothRepository] Bluetooth включен: $enabled');
+        bluetoothEnabled = enabled;
+      },
+    );
+
+    if (!bluetoothEnabled) {
+      print('[BluetoothRepository] Bluetooth выключен, прерываем сканирование');
+      return Left(BluetoothFailure(message: 'BLUETOOTH_DISABLED'));
+    }
+
+    print('[BluetoothRepository] Проверяем разрешения...');
     final permissionCheck = await _checkBluetoothPermissions();
     if (permissionCheck.isLeft()) {
-      return permissionCheck.fold(
-          (failure) => Left(failure),
+      return permissionCheck.fold((failure) {
+        print(
+            '[BluetoothRepository] Разрешения не получены: ${failure.message}');
+        return Left(failure);
+      },
           (_) =>
               Left(BluetoothFailure(message: 'Неизвестная ошибка разрешений')));
     }
 
+    print(
+        '[BluetoothRepository] Все проверки пройдены, начинаем сканирование...');
+
     try {
-      const int maxAttempts = 1;
-      const Duration attemptDuration = AppConfig.attemptDuration;
+      const int maxAttempts = 3; // Увеличиваем количество попыток
+      const Duration attemptDuration =
+          Duration(seconds: 15); // Увеличиваем время сканирования
 
       final found = <BluetoothDeviceEntity>[];
 
       for (int attempt = 0; attempt < maxAttempts; attempt++) {
-        _flutterBlueClassic.stopScan();
+        print(
+            '[BluetoothRepository] Попытка сканирования ${attempt + 1}/$maxAttempts');
+
+        // Останавливаем предыдущее сканирование
+        try {
+          _flutterBlueClassic.stopScan();
+          await Future.delayed(const Duration(
+              milliseconds: 500)); // Пауза между остановкой и запуском
+        } catch (e) {
+          print('[BluetoothRepository] Ошибка остановки сканирования: $e');
+        }
 
         final completer = Completer<void>();
 
         _scanSubscription?.cancel();
-        _scanSubscription = _flutterBlueClassic.scanResults.listen((d) {
-          final name = d.name ?? '';
-          if (!_quantorNameRegExp.hasMatch(name)) return;
+        _scanSubscription = _flutterBlueClassic.scanResults.listen(
+          (d) {
+            final name = d.name ?? '';
 
-          if (!found.any((e) => e.address == d.address)) {
-            final device =
-                BluetoothDeviceEntity(address: d.address, name: d.name);
-            found.add(device);
-            onDeviceFound?.call(device);
-          }
-        });
+            if (!_quantorNameRegExp.hasMatch(name)) {
+              return;
+            }
 
-        _flutterBlueClassic.startScan();
+            if (!found.any((e) => e.address == d.address)) {
+              final device =
+                  BluetoothDeviceEntity(address: d.address, name: d.name);
+              found.add(device);
+              print(
+                  '[BluetoothRepository] Добавлено устройство: ${device.name}');
+              onDeviceFound?.call(device);
+            }
+          },
+          onError: (error) {
+            print('[BluetoothRepository] Ошибка сканирования: $error');
+          },
+        );
 
-        await Future.any([
-          completer.future,
-          Future.delayed(attemptDuration),
-        ]);
+        try {
+          print('[BluetoothRepository] Запуск сканирования...');
+          _flutterBlueClassic.startScan();
 
-        _flutterBlueClassic.stopScan();
-        await _scanSubscription?.cancel();
+          await Future.any([
+            completer.future,
+            Future.delayed(attemptDuration),
+          ]);
+        } catch (e) {
+          print('[BluetoothRepository] Ошибка во время сканирования: $e');
+        }
 
-        if (found.isNotEmpty) break;
+        try {
+          _flutterBlueClassic.stopScan();
+          await _scanSubscription?.cancel();
+        } catch (e) {
+          print('[BluetoothRepository] Ошибка остановки сканирования: $e');
+        }
 
-        await Future.delayed(AppConfig.uiShortDelay);
+        print('[BluetoothRepository] Найдено устройств: ${found.length}');
+
+        if (found.isNotEmpty) {
+          print('[BluetoothRepository] Сканирование завершено успешно');
+          break;
+        }
+
+        // Пауза между попытками
+        if (attempt < maxAttempts - 1) {
+          print('[BluetoothRepository] Пауза перед следующей попыткой...');
+          await Future.delayed(const Duration(seconds: 2));
+        }
       }
+
+      if (found.isEmpty) {
+        print(
+            '[BluetoothRepository] Устройства не найдены после $maxAttempts попыток');
+      }
+
       return Right(found);
     } catch (e) {
+      print('[BluetoothRepository] Критическая ошибка сканирования: $e');
       return Left(BluetoothFailure(message: e.toString()));
     }
   }
