@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:bluetooth_per/core/data/source/device_info.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/core/data/source/point.dart';
@@ -72,12 +74,12 @@ class MainData {
     }
 
     try {
-      final res =
-          await db.query('tmc_agregat', columns: ['serNumber', 'stNumber']);
+      final res = await db.query('tmc_config',
+          columns: ['config'], where: 'record_type = 1');
       if (res.isNotEmpty) {
       } else {}
     } catch (e) {
-      print('[MainData] ERROR querying tmc_agregat: $e');
+      print('[MainData] ERROR querying tmc_config: $e');
       return OperStatus.dbError;
     }
 

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:bluetooth_per/core/data/source/device_info.dart';
@@ -51,11 +52,26 @@ class DbLayer {
 
   static Future<DeviceInfo> getDeviceInfo(Database db) async {
     try {
-      final res =
+/*      final res =
           await db.query('tmc_agregat', columns: ['serNumber', 'stNumber']);
       return res.isEmpty
-          ? DeviceInfo(serialNum: '', gosNum: '')
-          : DeviceInfo.fromMap(res.first);
+          ? DeviceInfo(serialNum: 'N\\A', gosNum: 'N\\A')
+          : DeviceInfo.fromMap(res.first);*/
+
+      final res = await db.query('tmc_config',
+          columns: ['config'], where: 'record_type = 1');
+
+      if (res.isEmpty) {
+        throw Exception('Configuration not found in database');
+      }
+
+      final configJson = res.first['config'] as String;
+      final Map<String, dynamic> config = json.decode(configJson);
+
+      final ktaSerial = config['kta_Serial']?.toString() ?? 'N/A';
+      final stateNumber = config['state_Number']?.toString() ?? 'N/A';
+
+      return DeviceInfo(serialNum: ktaSerial, gosNum: stateNumber);
     } catch (e) {
       throw Exception('Failed to get device info: $e');
     }
@@ -84,7 +100,8 @@ class DbLayer {
     }
   }
 
-  static Future<List<Point>> getOperationPoints(Database db, int dt1, int dt2) async {
+  static Future<List<Point>> getOperationPoints(
+      Database db, int dt1, int dt2) async {
     var res = await db.query(
       'tmc_points',
       columns: ['date', 'point', 'lat', 'lon', 'speed'],
