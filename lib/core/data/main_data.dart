@@ -1,6 +1,7 @@
 import 'package:bluetooth_per/core/data/source/device_info.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/core/data/source/point.dart';
+import 'package:bluetooth_per/core/utils/memory_monitor.dart';
 import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
 import 'package:bluetooth_per/features/web/utils/db_layer.dart';
 import 'package:bluetooth_per/features/web/utils/web_layer.dart';
@@ -10,6 +11,7 @@ enum OperStatus { ok, dbError, netError, filePathError }
 
 class MainData {
   bool allSelected = false;
+  static const int _maxCacheSize = 50;
 
   DeviceInfo deviceInfo = DeviceInfo.empty();
   List<Operation> operations = [];
@@ -18,6 +20,38 @@ class MainData {
   //Database? db;
 
   final Map<int, List<Point>> _pointsCache = {};
+
+  void _cleanupOldCacheEntries() {
+    if (_pointsCache.length > _maxCacheSize) {
+      final entries = _pointsCache.entries.toList();
+      entries.sort((a, b) => a.key.compareTo(b.key));
+
+      final toRemove = entries.take(_pointsCache.length - _maxCacheSize);
+      for (final entry in toRemove) {
+        _pointsCache.remove(entry.key);
+      }
+      MemoryMonitor.logCacheSize('PointsCache', _pointsCache.length);
+      print(
+          '[MainData] Cleaned cache: removed ${toRemove.length} entries, ${_pointsCache.length} remaining');
+    }
+  }
+
+  void clearCache() {
+    final oldSize = _pointsCache.length;
+    _pointsCache.clear();
+    MemoryMonitor.logCacheSize('PointsCache', 0);
+    print('[MainData] Cache cleared completely (was $oldSize entries)');
+  }
+
+  void dispose() {
+    MemoryMonitor.logMemoryUsage('MainData.dispose');
+    clearCache();
+    operations.clear();
+    deviceInfo = DeviceInfo.empty();
+    dbPath = '';
+    allSelected = false;
+    print('[MainData] MainData disposed');
+  }
 
   Future<OperStatus> awaitOperations() async {
     print('[MainData] awaitOperations: dbPath=$dbPath');
@@ -44,6 +78,7 @@ class MainData {
       } else {}
     } catch (e) {
       print('[MainData] ERROR querying tmc_agregat: $e');
+      return OperStatus.dbError;
     }
 
     deviceInfo = await DbLayer.getDeviceInfo(db!);
@@ -65,34 +100,37 @@ class MainData {
   }
 
   Future<OperStatus> awaitOperationPoints(Operation op) async {
-    if (dbPath.isEmpty) return OperStatus.filePathError;
+    if (dbPath.isEmpty) {
+      return OperStatus.filePathError;
+    }
 
     Database db = await DbLayer.getDb(dbPath);
-    //db ??= await DbLayer.initDb(dbPath);
-    if (db == null) return OperStatus.dbError;
+    if (db == null) {
+      return OperStatus.dbError;
+    }
 
     if (_pointsCache.containsKey(op.dt)) {
       op.points = _pointsCache[op.dt]!;
     } else {
       op.points = await DbLayer.getOperationPoints(db!, op.dt, op.dtStop);
       _pointsCache[op.dt] = op.points;
+      _cleanupOldCacheEntries();
     }
 
     op.pCnt = op.points.length;
     print('operation points count  = ${op.pCnt}');
-    //print(op.points.first.binValue);
 
     return OperStatus.ok;
   }
 
   Future<OperStatus> awaitOperationsCanSendStatus() async {
-    if (operations.isEmpty) return OperStatus.ok;
+    if (operations.isEmpty) {
+      return OperStatus.ok;
+    }
 
     OperListResponse resp =
         await WebLayer.exportOperList(deviceInfo.serialNum, operations);
 
-    // Если запрос не удался (нет сети, 5xx и т.п.) – сбрасываем флаги canSend,
-    // чтобы таблица не показывала «устаревшие» данные прошлой сессии.
     if (resp.resultCode != 200) {
       for (final op in operations) {
         op.canSend = false;
@@ -137,6 +175,15 @@ class MainData {
     deviceInfo = DeviceInfo.empty();
     operations.clear();
     allSelected = false;
+    clearCache();
+  }
+
+  void setDbPath(String newPath) {
+    if (dbPath != newPath) {
+      clearCache();
+      dbPath = newPath;
+      print('[MainData] DB path changed, cache cleared');
+    }
   }
 
   globalChangeSelected() {

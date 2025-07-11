@@ -807,8 +807,38 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
   @override
   void cancelScan() {
-    _isCancelled = true;
-    _flutterBlueClassic.stopScan();
     _scanSubscription?.cancel();
+    _scanSubscription = null;
+    _flutterBlueClassic.stopScan();
+  }
+
+  Future<void> dispose() async {
+    try {
+      _isCancelled = true;
+
+      await _scanSubscription?.cancel();
+      _scanSubscription = null;
+
+      await _connectionSubscription?.cancel();
+      _connectionSubscription = null;
+
+      await _downloadSubscription?.cancel();
+      _downloadSubscription = null;
+
+      if (_connection != null) {
+        _connection!.dispose();
+        _connection = null;
+      }
+
+      await _transport.dispose();
+
+      _isConnecting = false;
+      _isConnected = false;
+      _readyArchivePath = null;
+
+      print('[BluetoothRepository] All resources disposed');
+    } catch (e) {
+      print('[BluetoothRepository] Error during dispose: $e');
+    }
   }
 }

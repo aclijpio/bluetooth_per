@@ -9,6 +9,7 @@ import 'core/data/main_data.dart';
 import 'core/di/injection_container.dart' as di;
 import 'core/widgets/app_header.dart';
 import 'features/bluetooth/presentation/bloc/transfer_cubit.dart';
+import 'features/bluetooth/presentation/bloc/transfer_state.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,10 +37,18 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  DateTime? _lastBackPressed;
+
   @override
   void initState() {
     super.initState();
     _requestPermissions();
+  }
+
+  @override
+  void dispose() {
+    di.dispose();
+    super.dispose();
   }
 
   Future<void> _requestPermissions() async {
@@ -115,12 +124,65 @@ class _HomePageState extends State<HomePage> {
         Provider<MainData>(create: (context) => di.sl<MainData>()),
         BlocProvider(create: (context) => di.sl<TransferCubit>()),
       ],
-      child: Scaffold(
-        body: Column(
-          children: [
-            const SafeArea(child: AppHeader()),
-            Expanded(child: DeviceFlowScreen()),
-          ],
+      child: Builder(
+        builder: (context) => PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop) {
+              try {
+                final transferCubit = context.read<TransferCubit>();
+                final currentState = transferCubit.state;
+
+                // На начальном экране разрешаем выход
+                if (currentState is InitialSearchState) {
+                  Navigator.of(context).pop();
+                  return;
+                }
+
+                // Во время активных операций требуем двойное нажатие
+                if (currentState is ExportingState ||
+                    currentState is UploadingState ||
+                    currentState is RefreshingState ||
+                    currentState is DownloadingState) {
+                  final now = DateTime.now();
+                  if (_lastBackPressed == null ||
+                      now.difference(_lastBackPressed!) >
+                          const Duration(seconds: 2)) {
+                    _lastBackPressed = now;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content:
+                            Text('Нажмите еще раз для выхода из приложения'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                    return;
+                  }
+
+                  // Двойное нажатие - выходим
+                  Navigator.of(context).pop();
+                  return;
+                }
+
+                // Для остальных состояний используем обычную навигацию
+                final canGoBack = transferCubit.goBack();
+                if (!canGoBack) {
+                  Navigator.of(context).pop();
+                }
+              } catch (e) {
+                print('[Main] Ошибка при обработке кнопки "Назад": $e');
+                Navigator.of(context).pop();
+              }
+            }
+          },
+          child: Scaffold(
+            body: Column(
+              children: [
+                const SafeArea(child: AppHeader()),
+                Expanded(child: DeviceFlowScreen()),
+              ],
+            ),
+          ),
         ),
       ),
     );

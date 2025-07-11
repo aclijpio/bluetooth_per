@@ -31,8 +31,15 @@ class OperationSendingCubit extends Cubit<SendingState> {
       if (resCode == 200) {
         sendList[i].selected = false;
         sendList[i].canSend = false;
+        sendList[i].exported = true;
+        sendList[i].errorCode = 0;
+        sendList[i].checkError = false;
+        sendList[i].unavailable = false;
         emit(ProcessingSendingState((i + 1) / sendList.length));
       } else {
+        sendList[i].errorCode = resCode;
+        sendList[i].checkError = true;
+        sendList[i].exported = false;
         emit(ErrorSendingState(0, resCode));
         return;
       }
@@ -68,8 +75,15 @@ class OperationSendingCubit extends Cubit<SendingState> {
       if (resCode == 200) {
         sendList[i].selected = false;
         sendList[i].canSend = false;
+        sendList[i].exported = true;
+        sendList[i].errorCode = 0;
+        sendList[i].checkError = false;
+        sendList[i].unavailable = false;
         emit(ProcessingSendingState((i + 1) / sendList.length));
       } else {
+        sendList[i].errorCode = resCode;
+        sendList[i].checkError = true;
+        sendList[i].exported = false;
         emit(ErrorSendingState(0, resCode));
         return;
       }

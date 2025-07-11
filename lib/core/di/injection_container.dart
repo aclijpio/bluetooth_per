@@ -1,5 +1,7 @@
 import 'package:bluetooth_per/core/bloc/operation_sending_cubit.dart';
 import 'package:bluetooth_per/core/data/main_data.dart';
+import 'package:bluetooth_per/core/utils/background_operations_manager.dart';
+import 'package:bluetooth_per/features/web/utils/db_layer.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
 import 'package:get_it/get_it.dart';
 import 'package:logger/logger.dart';
@@ -13,11 +15,8 @@ final sl = GetIt.instance;
 
 Future<void> init() async {
   _registerUtils();
-
   _registerData();
-
   _registerExternalDependencies();
-
   _registerBluetooth();
 }
 
@@ -62,6 +61,37 @@ void _registerBluetooth() {
   sl.registerFactory(
     () => OperationSendingCubit(sl<MainData>()),
   );
+}
+
+Future<void> dispose() async {
+  try {
+    print('[DI] Starting global cleanup...');
+
+    await BackgroundOperationsManager.forceReleaseAllWakeLocks();
+
+    if (sl.isRegistered<MainData>()) {
+      sl<MainData>().dispose();
+    }
+
+    if (sl.isRegistered<BluetoothRepository>()) {
+      final repo = sl<BluetoothRepository>();
+      if (repo is BluetoothRepositoryImpl) {
+        await repo.dispose();
+      }
+    }
+
+    if (sl.isRegistered<BluetoothTransport>()) {
+      await sl<BluetoothTransport>().dispose();
+    }
+
+    await DbLayer.closeDb();
+
+    await sl.reset();
+
+    print('[DI] Global cleanup completed');
+  } catch (e) {
+    print('[DI] Error during global cleanup: $e');
+  }
 }
 
 /*

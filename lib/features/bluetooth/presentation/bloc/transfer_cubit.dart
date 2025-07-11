@@ -1,6 +1,7 @@
 import 'package:bluetooth_per/core/config.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
+import 'package:bluetooth_per/core/utils/background_operations_manager.dart';
 import 'package:bluetooth_per/core/utils/export_status_manager.dart';
 import 'package:bluetooth_per/features/bluetooth/domain/entities/bluetooth_device.dart';
 import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
@@ -67,6 +68,7 @@ class TransferCubit extends Cubit<TransferState> {
   }
 
   Future<void> startScanning() async {
+    await BackgroundOperationsManager.ensureWakeLockForOperation();
     _searching = true;
     emit(const SearchingState());
 
@@ -87,6 +89,7 @@ class TransferCubit extends Cubit<TransferState> {
       (failure) {
         if (!_searching || _isActiveState()) return;
         _searching = false;
+        BackgroundOperationsManager.releaseWakeLockAfterOperation();
 
         if (failure.message == 'BLUETOOTH_DISABLED') {
           emit(const BluetoothDisabledState());
@@ -170,6 +173,7 @@ class TransferCubit extends Cubit<TransferState> {
         _lastFoundDevices.clear();
         _lastFoundDevices.addAll(devices);
         _searching = false;
+        BackgroundOperationsManager.releaseWakeLockAfterOperation();
         if (devices.isEmpty) {
           _loadPending();
         } else {
@@ -192,6 +196,7 @@ class TransferCubit extends Cubit<TransferState> {
   }
 
   Future<void> connectToDevice(Device device) async {
+    await BackgroundOperationsManager.ensureWakeLockForOperation();
     _searching = false;
     _repository.cancelScan();
     emit(UploadingState(device));
@@ -204,6 +209,7 @@ class TransferCubit extends Cubit<TransferState> {
       bool connected = false;
       connectRes.fold(
         (failure) {
+          BackgroundOperationsManager.releaseWakeLockAfterOperation();
           emit(DeviceListState(_lastFoundDevices));
         },
         (_) {
@@ -211,7 +217,10 @@ class TransferCubit extends Cubit<TransferState> {
         },
       );
 
-      if (!connected) return;
+      if (!connected) {
+        BackgroundOperationsManager.releaseWakeLockAfterOperation();
+        return;
+      }
 
       try {
         bool receivedAnyResponse = false;
@@ -294,12 +303,12 @@ class TransferCubit extends Cubit<TransferState> {
               ],
             ),
           ),
-
           buttonText: 'К списку устройств',
           onButtonPressed: () {
             emit(DeviceListState(_lastFoundDevices));
           },
         ));
+        BackgroundOperationsManager.releaseWakeLockAfterOperation();
         return;
       }
 
@@ -309,6 +318,7 @@ class TransferCubit extends Cubit<TransferState> {
 
       listRes.fold(
         (failure) {
+          BackgroundOperationsManager.releaseWakeLockAfterOperation();
           emit(DeviceListState(_lastFoundDevices));
         },
         (fileNames) {
@@ -319,12 +329,15 @@ class TransferCubit extends Cubit<TransferState> {
         },
       );
     } catch (e) {
+      BackgroundOperationsManager.releaseWakeLockAfterOperation();
       emit(DeviceListState(_lastFoundDevices));
     }
   }
 
   Future<void> downloadArchive(ArchiveEntry entry) async {
+    await BackgroundOperationsManager.ensureWakeLockForOperation();
     if (state is! ConnectedState) {
+      BackgroundOperationsManager.releaseWakeLockAfterOperation();
       return;
     }
 
@@ -363,11 +376,13 @@ class TransferCubit extends Cubit<TransferState> {
       },
       onComplete: (filePath) async {
         await _handleDownloadedDb(filePath, entry, connectedDevice);
+        BackgroundOperationsManager.releaseWakeLockAfterOperation();
       },
     );
 
     downloadRes.fold(
       (failure) {
+        BackgroundOperationsManager.releaseWakeLockAfterOperation();
         emit(DeviceListState(_lastFoundDevices));
       },
       (_) {},
@@ -442,10 +457,68 @@ class TransferCubit extends Cubit<TransferState> {
 
   void reset() {
     _searching = false;
+    BackgroundOperationsManager.releaseWakeLockAfterOperation();
     _loadPending();
   }
 
+  bool goBack() {
+    if (state is InitialSearchState) {
+      // На начальном экране возвращаем false, чтобы разрешить выход из приложения
+      return false;
+    } else if (state is SearchingState) {
+      // Останавливаем поиск и переходим к pending или начальному экрану
+      _searching = false;
+      _repository.cancelScan();
+      BackgroundOperationsManager.releaseWakeLockAfterOperation();
+      _loadPending();
+      return true;
+    } else if (state is TableViewState) {
+      if (_lastFoundDevices.isNotEmpty) {
+        emit(DeviceListState(_lastFoundDevices));
+      } else {
+        _loadPending();
+      }
+      return true;
+    } else if (state is ConnectedState) {
+      if (_lastFoundDevices.isNotEmpty) {
+        emit(DeviceListState(_lastFoundDevices));
+      } else {
+        _loadPending();
+      }
+      return true;
+    } else if (state is DeviceListState) {
+      _loadPending();
+      return true;
+    } else if (state is SearchingStateWithDevices) {
+      _searching = false;
+      _repository.cancelScan();
+      BackgroundOperationsManager.releaseWakeLockAfterOperation();
+      _loadPending();
+      return true;
+    } else if (state is DbErrorState ||
+        state is NetErrorState ||
+        state is InfoMessageState) {
+      if (_lastFoundDevices.isNotEmpty) {
+        emit(DeviceListState(_lastFoundDevices));
+      } else {
+        _loadPending();
+      }
+      return true;
+    } else if (state is PendingArchivesState) {
+      _loadPending();
+      return true;
+    } else if (state is ExportingState ||
+        state is UploadingState ||
+        state is RefreshingState ||
+        state is DownloadingState) {
+      return true;
+    }
+
+    return false;
+  }
+
   Future<void> loadLocalArchive(String dbPath) async {
+    await BackgroundOperationsManager.ensureWakeLockForOperation();
     _mainData.dbPath = dbPath;
     _mainData.resetOperationData();
 
@@ -460,14 +533,17 @@ class TransferCubit extends Cubit<TransferState> {
     final status = await _mainData.awaitOperations();
 
     if (status == OperStatus.dbError) {
+      BackgroundOperationsManager.releaseWakeLockAfterOperation();
       emit(const DbErrorState('Файл не является базой данных или повреждён.'));
       return;
     }
     if (status == OperStatus.filePathError) {
+      BackgroundOperationsManager.releaseWakeLockAfterOperation();
       emit(const DbErrorState('Не выбран файл базы данных.'));
       return;
     }
     if (status != OperStatus.ok) {
+      BackgroundOperationsManager.releaseWakeLockAfterOperation();
       emit(const DbErrorState('Неизвестная ошибка при открытии базы данных.'));
       return;
     }
@@ -499,19 +575,22 @@ class TransferCubit extends Cubit<TransferState> {
     if (netStatus != OperStatus.ok) {
       emit(NetErrorState(dbPath));
     } else {
-      // Проверяем: если нет операций для отправки, сразу помечаем архив как экспортированный
       final operationsToSend =
           _mainData.operations.where((op) => op.canSend).toList();
       if (operationsToSend.isEmpty) {
         await ArchiveSyncManager.markExported(dbPath);
       }
     }
+
+    BackgroundOperationsManager.releaseWakeLockAfterOperation();
   }
 
   Future<void> exportSelected(
       {void Function(double progress)? onProgress,
       void Function()? onFinish}) async {
+    await BackgroundOperationsManager.ensureWakeLockForOperation();
     if (state is! TableViewState) {
+      BackgroundOperationsManager.releaseWakeLockAfterOperation();
       return;
     }
 
@@ -531,6 +610,7 @@ class TransferCubit extends Cubit<TransferState> {
         operations: _mainData.operations.toList(),
         isLoading: false,
       ));
+      BackgroundOperationsManager.releaseWakeLockAfterOperation();
       return;
     }
 
@@ -613,6 +693,18 @@ class TransferCubit extends Cubit<TransferState> {
             ..errorCode = 0;
           exportedOps.add(op.dt);
           await ExportStatusManager.addExportedOp(archiveFileName, op.dt);
+
+          // Обновляем операцию в MainData сразу же
+          final mainDataIdx =
+              _mainData.operations.indexWhere((o) => o.dt == op.dt);
+          if (mainDataIdx != -1) {
+            _mainData.operations[mainDataIdx].exported = true;
+            _mainData.operations[mainDataIdx].selected = false;
+            _mainData.operations[mainDataIdx].canSend = false;
+            _mainData.operations[mainDataIdx].checkError = false;
+            _mainData.operations[mainDataIdx].unavailable = false;
+            _mainData.operations[mainDataIdx].errorCode = 0;
+          }
         } else {
           currentOps[idx] = Operation(
             dt: op.dt,
@@ -638,10 +730,22 @@ class TransferCubit extends Cubit<TransferState> {
             ..exported = false
             ..unavailable = false
             ..errorCode = code;
+
+          // Обновляем операцию в MainData сразу же
+          final mainDataIdx =
+              _mainData.operations.indexWhere((o) => o.dt == op.dt);
+          if (mainDataIdx != -1) {
+            _mainData.operations[mainDataIdx].checkError = true;
+            _mainData.operations[mainDataIdx].exported = false;
+            _mainData.operations[mainDataIdx].unavailable = false;
+            _mainData.operations[mainDataIdx].errorCode = code;
+          }
         }
       }
       exportedPoints += op.points.length;
       final prog = totalPoints == 0 ? 1.0 : exportedPoints / totalPoints;
+
+      // Эмитим состояние с обновленным прогрессом чтобы UI обновился
       emit(ExportingState(
         prog,
         entry: entry,
@@ -649,14 +753,9 @@ class TransferCubit extends Cubit<TransferState> {
         currentExportingOperationDt: op.dt,
       ));
       onProgress?.call(prog);
-      emit(TableViewState(
-        connectedDevice: connectedDevice,
-        entry: entry,
-        rows: rows,
-        operations: currentOps,
-        isLoading: false,
-        disabled: true,
-      ));
+
+      // Небольшая задержка чтобы UI успел обновиться
+      await Future.delayed(const Duration(milliseconds: 50));
     }
     emit(TableViewState(
       connectedDevice: connectedDevice,
@@ -691,6 +790,7 @@ class TransferCubit extends Cubit<TransferState> {
     ));
     notifyTableChanged();
 
+    BackgroundOperationsManager.releaseWakeLockAfterOperation();
     onFinish?.call();
   }
 
@@ -739,6 +839,7 @@ class TransferCubit extends Cubit<TransferState> {
   void stopScanning() {
     _searching = false;
     _repository.cancelScan();
+    BackgroundOperationsManager.releaseWakeLockAfterOperation();
     emit(DeviceListState(List<Device>.from(_lastFoundDevices)));
   }
 

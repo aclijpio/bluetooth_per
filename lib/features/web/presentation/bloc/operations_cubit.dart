@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/main_data.dart';
 import '../../../../core/data/source/operation.dart';
+import '../../../../core/utils/background_operations_manager.dart';
 import 'operations_state.dart';
 
 class OperationsCubit extends Cubit<OperationsState> {
@@ -11,6 +12,7 @@ class OperationsCubit extends Cubit<OperationsState> {
   OperationsCubit(this._mainData) : super(EmptyOperationsState());
 
   getOperations() async {
+    await BackgroundOperationsManager.ensureWakeLockForOperation();
     emit(LoadingOperationsState());
     _cancelRequested = false;
     OperStatus status = await _mainData.awaitOperations();
@@ -18,6 +20,7 @@ class OperationsCubit extends Cubit<OperationsState> {
     if (status == OperStatus.ok) {
       for (Operation op in _mainData.operations) {
         if (_cancelRequested) {
+          BackgroundOperationsManager.releaseWakeLockAfterOperation();
           emit(EmptyOperationsState());
           return;
         }
@@ -28,6 +31,7 @@ class OperationsCubit extends Cubit<OperationsState> {
 
     if (status == OperStatus.ok) {
       if (_cancelRequested) {
+        BackgroundOperationsManager.releaseWakeLockAfterOperation();
         emit(EmptyOperationsState());
         return;
       }
@@ -39,6 +43,8 @@ class OperationsCubit extends Cubit<OperationsState> {
     } else {
       emit(ErrorOperationsState(status.index));
     }
+
+    BackgroundOperationsManager.releaseWakeLockAfterOperation();
   }
 
   clearOperations() {
@@ -61,6 +67,7 @@ class OperationsCubit extends Cubit<OperationsState> {
 
   void cancelGetOperations() {
     _cancelRequested = true;
+    BackgroundOperationsManager.releaseWakeLockAfterOperation();
     emit(EmptyOperationsState());
   }
 }
