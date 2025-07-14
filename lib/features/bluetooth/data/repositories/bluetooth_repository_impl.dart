@@ -30,10 +30,7 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   StreamSubscription? _downloadSubscription;
   String? _readyArchivePath;
 
-  /// Паттерн для проверки имени устройства Quantor.
-  /// Пример: Quantor A123BC, Quantor A123BC1234.
-  static final RegExp _quantorNameRegExp =
-      RegExp(r'^Quantor [A-Z]\d{3}[A-Z]{2}\d{0,4}$', caseSensitive: false);
+  static final RegExp _quantorNameRegExp = AppConfig.bluetoothServerRegExp;
 
   BluetoothRepositoryImpl(this._transport, this._flutterBlueClassic);
 
@@ -52,16 +49,12 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         return Left(BluetoothFailure(message: 'BLUETOOTH_DISABLED'));
       }
 
-      // 2. Проверяем разрешения в зависимости от версии Android
       final permissionsToRequest = <Permission>[];
 
-      // Получаем версию Android
       final androidVersion =
           Platform.isAndroid ? await _getAndroidVersion() : 0;
 
       if (androidVersion >= 31) {
-        // Android 12+ (API 31+)
-        // Для Android 12+ нужны новые разрешения
         if (await Permission.bluetoothScan.isDenied) {
           permissionsToRequest.add(Permission.bluetoothScan);
         }
@@ -69,32 +62,25 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           permissionsToRequest.add(Permission.bluetoothConnect);
         }
 
-        // Дополнительные разрешения для Android 15+ (API 35+)
         if (androidVersion >= 35) {
-          // Android 15 может требовать дополнительные разрешения
           if (await Permission.bluetoothAdvertise.isDenied) {
             permissionsToRequest.add(Permission.bluetoothAdvertise);
           }
         }
       } else if (androidVersion >= 23) {
-        // Android 6-11 (API 23-30)
-        // Для Android 6-11 нужны старые разрешения + геолокация
         if (await Permission.bluetooth.isDenied) {
           permissionsToRequest.add(Permission.bluetooth);
         }
 
-        // Геолокация обязательна для сканирования на Android 6-11
         if (await Permission.location.isDenied) {
           permissionsToRequest.add(Permission.location);
         }
       } else {
-        // Для старых версий Android (до API 23)
         if (await Permission.bluetooth.isDenied) {
           permissionsToRequest.add(Permission.bluetooth);
         }
       }
 
-      // Запрашиваем все необходимые разрешения
       if (permissionsToRequest.isNotEmpty) {
         print(
             '[BluetoothRepository] Запрашиваем разрешения: ${permissionsToRequest.map((p) => p.toString()).join(', ')}');
@@ -107,7 +93,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           print('  ${entry.key}: ${entry.value}');
         }
 
-        // Проверяем, что все критически важные разрешения получены
         final deniedPermissions = <Permission>[];
         final permanentlyDeniedPermissions = <Permission>[];
 
@@ -133,7 +118,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         }
       }
 
-      // Финальная проверка - убеждаемся что все разрешения действительно есть
       final missingPermissions = <String>[];
 
       if (androidVersion >= 31) {
@@ -177,8 +161,6 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       return 0;
     } catch (e) {
       print('Ошибка получения версии Android: $e');
-      // Возвращаем 35 (Android 15) как современное значение по умолчанию
-      // Это обеспечит запрос всех необходимых разрешений для новейших версий
       return 35;
     }
   }
@@ -660,24 +642,28 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
             onDone: () async {
               await flushAndCloseSink();
               if (receivedBytes < expectedFileSize && !_isCancelled) {
+                // Передача неполная – считаем ошибкой
                 if (!responseCompleter.isCompleted) {
-                  responseCompleter.complete(false);
+                  responseCompleter.complete(false); // ❌ неуспешно
                 }
               } else if (!responseCompleter.isCompleted) {
-                responseCompleter.complete(true);
+                responseCompleter.complete(true); // ✅ успешно
               }
             },
           );
 
           final response = await responseCompleter.future;
 
-          if (response || _isCancelled) {
-            if (_isCancelled) {
-              await tempFile?.delete();
-              return const Right(true);
-            }
+          if (_isCancelled) {
+            await tempFile?.delete();
+            return const Right(true);
+          }
+
+          if (response) {
+            // Передача успешна - вызываем onComplete
             return const Right(true);
           } else {
+            // Передача неуспешна - пробуем ещё раз
             retryCount++;
             if (retryCount < maxRetries) {
               await Future.delayed(AppConfig.uiShortDelay);
@@ -698,7 +684,8 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         return const Right(true);
       }
       return Left(FileOperationFailure(
-          message: 'Не удалось загрузить файл после $maxRetries попыток'));
+          message:
+              'Не удалось загрузить файл после $maxRetries попыток. Файл может быть повреждён или соединение нестабильно.'));
     } catch (e) {
       return Left(FileOperationFailure(message: e.toString()));
     }

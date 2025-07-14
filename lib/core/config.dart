@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 class AppConfig {
   static const String archivesDirName = '_Архив КВАНТОР';
   static const String appName = 'Transfer_QT';
+  static final RegExp bluetoothServerRegExp = RegExp(r'^Quantor (?:[A-Z]|\d)+$', caseSensitive: false);
 
   static const String serverBaseUrl = 'http://tms.quantor-t.ru:8080';
   static const String webUUID = "595a31f7-ad09-43ff-9a04-1c29bfe795cb";

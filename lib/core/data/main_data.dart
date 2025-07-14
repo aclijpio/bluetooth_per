@@ -79,7 +79,6 @@ class MainData {
       if (res.isNotEmpty) {
       } else {}
     } catch (e) {
-      print('[MainData] ERROR querying tmc_config: $e');
       return OperStatus.dbError;
     }
 
