@@ -3,6 +3,7 @@ import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/core/utils/archive_sync_manager.dart';
 import 'package:bluetooth_per/core/utils/background_operations_manager.dart';
 import 'package:bluetooth_per/core/utils/export_status_manager.dart';
+import 'package:bluetooth_per/core/widgets/send_logs_button.dart';
 import 'package:bluetooth_per/features/bluetooth/domain/entities/bluetooth_device.dart';
 import 'package:bluetooth_per/features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import 'package:flutter/material.dart';
@@ -191,7 +192,7 @@ class TransferCubit extends Cubit<TransferState> {
         state is TableViewState ||
         state is ExportingState ||
         state is NetErrorState ||
-        state is DbErrorState ||
+        (state is InfoMessageState) ||
         state is BluetoothDisabledState;
   }
 
@@ -405,15 +406,15 @@ class TransferCubit extends Cubit<TransferState> {
     final localStatus = await _mainData.awaitOperations();
 
     if (localStatus == OperStatus.dbError) {
-      emit(const DbErrorState('Файл не является базой данных или повреждён.'));
+      emit(_createDbErrorState('Файл не является базой данных или повреждён.'));
       return;
     }
     if (localStatus == OperStatus.filePathError) {
-      emit(const DbErrorState('Не выбран файл базы данных.'));
+      emit(_createDbErrorState('Не выбран файл базы данных.'));
       return;
     }
     if (localStatus != OperStatus.ok) {
-      emit(const DbErrorState('Неизвестная ошибка при открытии базы данных.'));
+      emit(_createDbErrorState('Неизвестная ошибка при открытии базы данных.'));
       return;
     }
 
@@ -495,9 +496,7 @@ class TransferCubit extends Cubit<TransferState> {
       BackgroundOperationsManager.releaseWakeLockAfterOperation();
       _loadPending();
       return true;
-    } else if (state is DbErrorState ||
-        state is NetErrorState ||
-        state is InfoMessageState) {
+    } else if (state is NetErrorState || state is InfoMessageState) {
       if (_lastFoundDevices.isNotEmpty) {
         emit(DeviceListState(_lastFoundDevices));
       } else {
@@ -534,17 +533,17 @@ class TransferCubit extends Cubit<TransferState> {
 
     if (status == OperStatus.dbError) {
       BackgroundOperationsManager.releaseWakeLockAfterOperation();
-      emit(const DbErrorState('Файл не является базой данных или повреждён.'));
+      emit(_createDbErrorState('Файл не является базой данных или повреждён.'));
       return;
     }
     if (status == OperStatus.filePathError) {
       BackgroundOperationsManager.releaseWakeLockAfterOperation();
-      emit(const DbErrorState('Не выбран файл базы данных.'));
+      emit(_createDbErrorState('Не выбран файл базы данных.'));
       return;
     }
     if (status != OperStatus.ok) {
       BackgroundOperationsManager.releaseWakeLockAfterOperation();
-      emit(const DbErrorState('Неизвестная ошибка при открытии базы данных.'));
+      emit(_createDbErrorState('Неизвестная ошибка при открытии базы данных.'));
       return;
     }
 
@@ -846,5 +845,32 @@ class TransferCubit extends Cubit<TransferState> {
   Future<void> deletePendingArchive(String path) async {
     await ArchiveSyncManager.deletePending(path);
     await _loadPending();
+  }
+
+  /// Создает InfoMessageState для ошибок базы данных с кнопкой отправки логов
+  InfoMessageState _createDbErrorState(String errorMessage) {
+    return InfoMessageState(
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.error_outline, color: AppConfig.errorColor, size: 48),
+          const SizedBox(height: 16),
+          Text(
+            errorMessage,
+            style: const TextStyle(color: AppConfig.errorColor, fontSize: 18),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          SendLogsButton(
+            buttonText: 'Отправить логи',
+            icon: Icons.bug_report,
+            backgroundColor: Colors.orange,
+            textColor: Colors.white,
+          ),
+        ],
+      ),
+      onButtonPressed: reset,
+      buttonText: 'Назад',
+    );
   }
 }

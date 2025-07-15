@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../config.dart';
 import 'export_status_manager.dart';
+import 'log_manager.dart';
 
 class ArchiveSyncManager {
   ArchiveSyncManager._();
@@ -13,18 +14,24 @@ class ArchiveSyncManager {
     final basePath = await ExternalPath.getExternalStoragePublicDirectory(
         ExternalPath.DIRECTORY_DOWNLOAD);
     final archiveDir = Directory(p.join(basePath, AppConfig.archivesDirName));
+
     print(archiveDir);
+
     if (!await archiveDir.exists()) {
       await archiveDir.create(recursive: true);
     }
+
     return archiveDir;
   }
 
   static Future<List<String>> getPending() async {
     final archiveDir = await getArchivesDirectory();
     if (!await archiveDir.exists()) {
+      await LogManager.fileOperation(
+          'FILE', 'Директория архивов не существует', LogLevel.warning);
       return [];
     }
+
     final files = await archiveDir.list().toList();
     final pending = files
         .where((f) =>
@@ -40,15 +47,20 @@ class ArchiveSyncManager {
     if (path.endsWith(AppConfig.notExportedSuffix + AppConfig.dbExtension)) {
       return;
     }
+
     final file = File(path);
     if (await file.exists()) {
       final newPath = path.replaceFirst(RegExp(r'\.db$'),
           '${AppConfig.notExportedSuffix}${AppConfig.dbExtension}');
       try {
         await file.rename(newPath);
-      } catch (_) {
-        // Игнорируем ошибки, например, если файл уже существует
+      } catch (e) {
+        await LogManager.fileOperation(
+            'FILE', 'Не удалось переименовать файл: $e', LogLevel.error);
       }
+    } else {
+      await LogManager.fileOperation(
+          'FILE', 'Файл не существует: $path', LogLevel.warning);
     }
   }
 
@@ -57,12 +69,22 @@ class ArchiveSyncManager {
         .endsWith(AppConfig.notExportedSuffix + AppConfig.dbExtension)) {
       return;
     }
+
     final exportedPath = pendingPath.replaceAll(
         AppConfig.notExportedSuffix + AppConfig.dbExtension,
         AppConfig.dbExtension);
     final file = File(pendingPath);
+
     if (await file.exists()) {
-      await file.rename(exportedPath);
+      try {
+        await file.rename(exportedPath);
+      } catch (e) {
+        await LogManager.fileOperation('FILE',
+            'Не удалось отметить как экспортированный: $e', LogLevel.error);
+      }
+    } else {
+      await LogManager.fileOperation(
+          'FILE', 'Ожидающий файл не существует', LogLevel.warning);
     }
   }
 
@@ -79,10 +101,19 @@ class ArchiveSyncManager {
   static Future<void> deletePending(String path) async {
     final file = File(path);
     if (await file.exists()) {
-      await file.delete();
-      // Также удаляем статус экспорта из ExportStatusManager
-      final fileName = p.basename(path);
-      await ExportStatusManager.removeArchiveStatus(fileName);
+      try {
+        await file.delete();
+
+        // Также удаляем статус экспорта из ExportStatusManager
+        final fileName = p.basename(path);
+        await ExportStatusManager.removeArchiveStatus(fileName);
+      } catch (e) {
+        await LogManager.fileOperation(
+            'FILE', 'Не удалось удалить ожидающий архив: $e', LogLevel.error);
+      }
+    } else {
+      await LogManager.fileOperation(
+          'FILE', 'Ожидающий архивный файл не существует', LogLevel.warning);
     }
   }
 }

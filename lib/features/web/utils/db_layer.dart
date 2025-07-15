@@ -1,9 +1,10 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, File;
 
 import 'package:bluetooth_per/core/data/source/device_info.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/core/data/source/point.dart';
+import 'package:bluetooth_per/core/utils/log_manager.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:sqflite/sqflite.dart' as mobile;
 import 'package:sqflite/sqflite.dart';
@@ -14,20 +15,43 @@ class DbLayer {
   static String curDbPath = '';
 
   static Future<Database> getDb(String newPath) async {
+    await LogManager.database('DB', 'Запрос подключения к БД: $newPath');
+
     if ((newPath != curDbPath) && (_db != null)) {
+      await LogManager.database(
+          'DB', 'Закрываем предыдущее подключение к БД: $curDbPath');
       await _db?.close();
       _db = null;
     }
 
     if (_db != null) {
+      await LogManager.database(
+          'DB', 'Используем существующее подключение к БД');
       return _db!;
     }
 
     try {
+      await LogManager.database(
+          'DB', 'Инициализируем новое подключение к БД: $newPath');
+
+      // Проверяем существование файла
+      final file = File(newPath);
+      if (!await file.exists()) {
+        throw Exception('Файл БД не существует: $newPath');
+      }
+
+      final fileSize = await file.length();
+      await LogManager.database('DB', 'Размер файла БД: $fileSize байт');
+
       _db = await initDb(newPath);
       curDbPath = newPath;
+
+      await LogManager.database(
+          'DB', 'БД успешно открыта и готова к использованию');
       return _db!;
     } catch (e) {
+      await LogManager.database(
+          'DB', 'Не удалось инициализировать БД: $e', LogLevel.error);
       throw Exception('Failed to initialize database: $e');
     }
   }
@@ -51,6 +75,9 @@ class DbLayer {
   }
 
   static Future<DeviceInfo> getDeviceInfo(Database db) async {
+    await LogManager.database(
+        'DB', 'Запрашиваем информацию об устройстве из БД');
+
     try {
 /*      final res =
           await db.query('tmc_agregat', columns: ['serNumber', 'stNumber']);
@@ -58,26 +85,41 @@ class DbLayer {
           ? DeviceInfo(serialNum: 'N\\A', gosNum: 'N\\A')
           : DeviceInfo.fromMap(res.first);*/
 
+      await LogManager.database('DB', 'Выполняем запрос к таблице tmc_config');
+
       final res = await db.query('tmc_config',
           columns: ['config'], where: 'record_type = 1');
 
+      await LogManager.database(
+          'DB', 'Запрос к tmc_config выполнен, найдено записей: ${res.length}');
+
       if (res.isEmpty) {
+        await LogManager.database(
+            'DB', 'Конфигурация не найдена в БД', LogLevel.error);
         throw Exception('Configuration not found in database');
       }
 
+      await LogManager.database('DB', 'Парсим JSON конфигурацию из БД');
       final configJson = res.first['config'] as String;
       final Map<String, dynamic> config = json.decode(configJson);
 
       final ktaSerial = config['kta_Serial']?.toString() ?? 'N/A';
       final stateNumber = config['state_Number']?.toString() ?? 'N/A';
 
+      await LogManager.database('DB',
+          'Информация об устройстве получена: serial=$ktaSerial, state=$stateNumber');
+
       return DeviceInfo(serialNum: ktaSerial, gosNum: stateNumber);
     } catch (e) {
+      await LogManager.database(
+          'DB', 'Ошибка при запросе конфигурации из БД: $e', LogLevel.error);
       throw Exception('Failed to get device info: $e');
     }
   }
 
   static Future<List<Operation>> getOperationList(Database db) async {
+    // Убираем информационный лог
+
     var res = await db.query('tmc_operations', columns: [
       'DT',
       'max_pressure',
@@ -94,9 +136,12 @@ class DbLayer {
       'equipment'
     ]);
     if (res.isEmpty) {
+      await LogManager.database(
+          'DB', 'Операции не найдены в БД', LogLevel.warning);
       return [];
     } else {
-      return res.map((e) => Operation.fromMap(e)).toList();
+      final operations = res.map((e) => Operation.fromMap(e)).toList();
+      return operations;
     }
   }
 

@@ -7,12 +7,23 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'core/data/main_data.dart';
 import 'core/di/injection_container.dart' as di;
+import 'core/utils/log_manager.dart';
 import 'core/widgets/app_header.dart';
 import 'features/bluetooth/presentation/bloc/transfer_cubit.dart';
 import 'features/bluetooth/presentation/bloc/transfer_state.dart';
+import 'features/settings/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Инициализируем логгер
+  try {
+    await LogManager.initialize();
+    await LogManager.warning('APP', 'Приложение успешно запущено');
+  } catch (e) {
+    print('[ГЛАВНАЯ] Не удалось инициализировать LogManager: $e');
+  }
+
   await di.init();
   runApp(const MyApp());
 }
@@ -49,6 +60,14 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     di.dispose();
     super.dispose();
+  }
+
+  void _openSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const SettingsScreen(),
+      ),
+    );
   }
 
   Future<void> _requestPermissions() async {
@@ -178,7 +197,11 @@ class _HomePageState extends State<HomePage> {
           child: Scaffold(
             body: Column(
               children: [
-                const SafeArea(child: AppHeader()),
+                SafeArea(
+                  child: AppHeader(
+                    onSettingsPressed: () => _openSettings(context),
+                  ),
+                ),
                 Expanded(child: DeviceFlowScreen()),
               ],
             ),

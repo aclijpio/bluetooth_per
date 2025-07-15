@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'archive_sync_manager.dart';
+import 'log_manager.dart';
 
 class ExportStatusManager {
   static Future<File> _getStatusFile() async {
@@ -12,17 +13,27 @@ class ExportStatusManager {
   }
 
   static Future<Map<String, dynamic>> _readStatus() async {
-    final file = await _getStatusFile();
-    if (await file.exists()) {
-      final content = await file.readAsString();
-      return jsonDecode(content) as Map<String, dynamic>;
+    try {
+      final file = await _getStatusFile();
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        return jsonDecode(content) as Map<String, dynamic>;
+      }
+      return {};
+    } catch (e) {
+      LogManager.error('FILE', 'Ошибка чтения статуса экспорта: $e');
+      return {};
     }
-    return {};
   }
 
   static Future<void> _writeStatus(Map<String, dynamic> data) async {
-    final file = await _getStatusFile();
-    await file.writeAsString(jsonEncode(data), flush: true);
+    try {
+      final file = await _getStatusFile();
+      await file.writeAsString(jsonEncode(data), flush: true);
+    } catch (e) {
+      LogManager.error('FILE', 'Ошибка записи статуса экспорта: $e');
+      rethrow;
+    }
   }
 
   // Получить статус архива

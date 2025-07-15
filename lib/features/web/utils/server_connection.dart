@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:bluetooth_per/core/config.dart';
+import 'package:bluetooth_per/core/utils/log_manager.dart';
 import 'package:http/http.dart' as http;
 
 class ServerConnection {
@@ -29,6 +30,7 @@ class ServerConnection {
         return res.statusCode;
       }
     } catch (e) {
+      LogManager.error('WEB', 'Ошибка POST запроса к $path: $e');
       return 500;
     }
   }
@@ -79,6 +81,7 @@ class ServerConnection {
         return res.statusCode;
       }
     } catch (e) {
+      LogManager.error('WEB', 'Ошибка GET запроса к $path: $e');
       return 500;
     }
   }

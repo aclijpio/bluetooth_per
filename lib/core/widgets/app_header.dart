@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 class AppHeader extends StatelessWidget {
-  const AppHeader({super.key});
+  final VoidCallback? onSettingsPressed;
+
+  const AppHeader({super.key, this.onSettingsPressed});
 
   @override
   Widget build(BuildContext context) {
@@ -14,7 +16,6 @@ class AppHeader extends StatelessWidget {
       ),
       width: double.infinity,
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           SvgPicture.asset(
             'assets/images/logo.svg',
@@ -23,16 +24,28 @@ class AppHeader extends StatelessWidget {
             colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
           ),
           const SizedBox(width: 16),
-          const Text(
-            'Transfer-QT',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 28,
-              fontWeight: FontWeight.w600,
-              decoration: TextDecoration.none,
-              letterSpacing: 1.2,
+          const Expanded(
+            child: Text(
+              'Transfer-QT',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w600,
+                decoration: TextDecoration.none,
+                letterSpacing: 1.2,
+              ),
             ),
           ),
+          if (onSettingsPressed != null)
+            IconButton(
+              onPressed: onSettingsPressed,
+              icon: const Icon(
+                Icons.settings,
+                color: Colors.white,
+                size: 28,
+              ),
+              tooltip: 'Настройки',
+            ),
         ],
       ),
     );

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:bluetooth_per/core/data/source/device_info.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/core/data/source/point.dart';
+import 'package:bluetooth_per/core/utils/log_manager.dart';
 import 'package:bluetooth_per/core/utils/memory_monitor.dart';
 import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
 import 'package:bluetooth_per/features/web/utils/db_layer.dart';
@@ -69,6 +70,8 @@ class MainData {
     Database db = await DbLayer.getDb(dbPath);
     db ??= await DbLayer.initDb(dbPath);
     if (db == null) {
+      LogManager.error(
+          'DB', 'Не удалось инициализировать базу данных: $dbPath');
       print('[MainData] awaitOperations: dbError');
       return OperStatus.dbError;
     }
@@ -79,6 +82,7 @@ class MainData {
       if (res.isNotEmpty) {
       } else {}
     } catch (e) {
+      LogManager.error('DB', 'Ошибка при запросе конфигурации из БД: $e');
       return OperStatus.dbError;
     }
 
@@ -107,6 +111,8 @@ class MainData {
 
     Database db = await DbLayer.getDb(dbPath);
     if (db == null) {
+      LogManager.error(
+          'DB', 'Не удалось получить БД для операции ${op.dt}: $dbPath');
       return OperStatus.dbError;
     }
 

@@ -1,15 +1,61 @@
 import 'package:flutter/material.dart';
+import 'package:logger/web.dart';
 
 class AppConfig {
   static const String archivesDirName = '_Архив КВАНТОР';
   static const String appName = 'Transfer_QT';
-  static final RegExp bluetoothServerRegExp = RegExp(r'^Quantor (?:[A-Z]|\d)+$', caseSensitive: false);
+  static final RegExp bluetoothServerRegExp =
+      RegExp(r'^Quantor (?:[A-Z]|\d)+$', caseSensitive: false);
 
   static const String serverBaseUrl = 'http://tms.quantor-t.ru:8080';
   static const String webUUID = "595a31f7-ad09-43ff-9a04-1c29bfe795cb";
 
   static const String notExportedSuffix = '_NEED_EXPORT';
   static const String dbExtension = '.db';
+
+  // --- Конфигурация логирования ---
+  static const String logsDirName = 'quantorLogs';
+  static const String logFileExtension = '.log';
+  static const int maxLogFileSize = 3 * 1024 * 1024; // 3 MB
+  static const int maxLogFilesCount = 5; // Максимум файлов логов
+  static const Duration logRotationCheckInterval = Duration(hours: 2);
+  static const Duration maxLogAge =
+      Duration(days: 3); // Удалять логи старше 3 дней
+
+  // --- Конфигурация отправки логов ---
+  static const String supportEmail = 'teinpoint@gmail.com';
+  static const String logEmailSubject = 'Логи Bluetooth Per';
+  static const String logEmailBodyPrefix = 'Логи приложения Bluetooth Per:\n\n';
+  static const int maxMailtoContentLength = 2000; // Лимит для mailto
+  static const String mailtoTruncationMessage =
+      '\n\n... (логи обрезаны из-за ограничений mailto)';
+
+  // --- SMTP конфигурация ---
+  // Для Gmail:
+  // 2. Создать пароль приложения: https://myaccount.google.com/apppasswords
+  static const String smtpHost = 'smtp.gmail.com';
+  static const int smtpPort = 587;
+  static const String senderEmail =
+      'aclijpio@gmail.com';
+  static const String senderPassword =
+      'ljld nvsf ufop qrht';
+  static const String senderName = 'Trasnfer-QT ';
+
+  // Значения
+  static const String appVersion = '1.0.8';
+  static const String developerName = 'КВАНТОР';
+
+  // Кнопки и действия
+  static const String sendLogsToDevsTitle = 'Отправить логи разработчикам';
+  static const String sendLogsToDevsSubtitle =
+      'Отправка файлов логов для диагностики проблем';
+  static const String sendLogsDialogTitle = 'Отправка логов';
+  static const String sendLogsDialogContent =
+      'Логи содержат информацию о работе приложения и могут помочь в диагностике проблем.';
+  static const String sendLogsDialogPrivacy =
+      'Логи не содержат персональных данных или содержимого файлов.';
+  static const String cancelButtonText = 'Отмена';
+  static const String sendButtonText = 'Отправить';
 
   static const Duration webRequestTimeout = Duration(seconds: 15);
 

@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/data/main_data.dart';
 import '../../../../core/data/source/operation.dart';
 import '../../../../core/utils/background_operations_manager.dart';
+import '../../../../core/utils/log_manager.dart';
 import 'operations_state.dart';
 
 class OperationsCubit extends Cubit<OperationsState> {
@@ -39,8 +40,25 @@ class OperationsCubit extends Cubit<OperationsState> {
     }
 
     if (status == OperStatus.ok) {
+      LogManager.info('APP',
+          'Операции успешно загружены: ${_mainData.operations.length} операций');
       emit(LoadedOperationsState());
     } else {
+      String errorMsg = '';
+      switch (status) {
+        case OperStatus.dbError:
+          errorMsg = 'Ошибка базы данных при загрузке операций';
+          break;
+        case OperStatus.netError:
+          errorMsg = 'Ошибка сети при проверке статуса операций';
+          break;
+        case OperStatus.filePathError:
+          errorMsg = 'Ошибка пути к файлу БД';
+          break;
+        default:
+          errorMsg = 'Неизвестная ошибка при загрузке операций';
+      }
+      LogManager.error('APP', errorMsg);
       emit(ErrorOperationsState(status.index));
     }
 

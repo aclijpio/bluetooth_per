@@ -144,13 +144,6 @@ class ExportSuccessState extends TransferState {
   const ExportSuccessState();
 }
 
-class DbErrorState extends TransferState {
-  final String message;
-  const DbErrorState(this.message);
-
-  @override
-  List<Object?> get props => [message];
-}
 
 class NetErrorState extends TransferState {
   final String dbPath;

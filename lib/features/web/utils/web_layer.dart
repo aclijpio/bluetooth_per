@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:bluetooth_per/core/config.dart';
+import 'package:bluetooth_per/core/utils/log_manager.dart';
 import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
 import 'package:dio/dio.dart';
 
@@ -12,17 +13,21 @@ class WebLayer {
 
   static Future<OperListResponse> exportOperList(
       String serial, List<Operation> operations) async {
+    await LogManager.web(
+        'WEB', 'Начинаем экспорт списка операций для устройства: $serial');
+
     Map<String, dynamic> request = {
       "serial": serial,
       "uuid": constUuid,
       "operations": operations
-          .where((op) => op
-              .points.isNotEmpty)
+          .where((op) => op.points.isNotEmpty)
           .map((e) => e.dtAndCount())
           .toList(),
     };
 
     String reqStr = json.encode(request);
+    await LogManager.web(
+        'WEB', 'Отправляем запрос с ${operations.length} операциями');
     print('[WebLayer] exportOperList: request=$reqStr');
     dynamic response =
         await ServerConnection.postReq(reqStr, 'get_archive_list')
@@ -31,18 +36,25 @@ class WebLayer {
     });
 
     print('[WebLayer] exportOperList: response=$response');
+
     if (response.runtimeType == int) {
+      await LogManager.web(
+          'WEB', 'Запрос завершился с ошибкой: $response', LogLevel.error);
       return OperListResponse(response, []);
     } else {
       Map<String, dynamic> responseMap = json.decode(response);
-      return OperListResponse(
-        200,
-        (responseMap['operations'] as List).map((e) => e as int).toList(),
-      );
+      final operationsList =
+          (responseMap['operations'] as List).map((e) => e as int).toList();
+      await LogManager.web('WEB',
+          'Запрос успешен, получено ${operationsList.length} операций');
+      return OperListResponse(200, operationsList);
     }
   }
 
   static Future<int> exportOperData(String serial, Operation op) async {
+    await LogManager.web('WEB',
+        'Начинаем экспорт данных операции для устройства: $serial, операция: ${op.dt}');
+
     Map<String, dynamic> request = {
       "serial": serial,
       "uuid": constUuid,
@@ -50,6 +62,8 @@ class WebLayer {
       "points": op.points.map((e) => e.toSendMap()).toList(),
     };
     String reqStr = json.encode(request);
+    await LogManager.web(
+        'WEB', 'Отправляем операцию с ${op.points.length} точками данных');
     dynamic response =
         await ServerConnection.postReqRetry(reqStr, 'send_archive')
             .timeout(AppConfig.longRequestTimeout, onTimeout: () {
@@ -57,8 +71,11 @@ class WebLayer {
     });
 
     if (response.runtimeType == int) {
+      await LogManager.web('WEB',
+          'Экспорт операции завершился с ошибкой: $response', LogLevel.error);
       return response;
     } else {
+      await LogManager.web('WEB', 'Экспорт операции завершился успешно');
       return 200;
     }
   }
@@ -93,6 +110,8 @@ class WebLayer {
         return response.statusCode ?? 500;
       }
     } catch (e) {
+      LogManager.error('WEB',
+          'Ошибка экспорта операции с прогрессом для устройства $serial, операция ${op.dt}: $e');
       onProgress(1.0);
       return 500;
     }

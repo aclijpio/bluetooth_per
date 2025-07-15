@@ -71,6 +71,7 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
           });
         }
       },
+
       child: BlocProvider<OperationSendingCubit>(
         create: (ctx) => di.sl<OperationSendingCubit>(),
         child: Scaffold(
@@ -306,28 +307,6 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
             ),
           ),
         ],
-      );
-    } else if (state is DbErrorState) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, color: AppConfig.errorColor, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              state.message,
-              style: const TextStyle(color: AppConfig.errorColor, fontSize: 18),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                context.read<TransferCubit>().reset();
-              },
-              child: const Text('Назад'),
-            ),
-          ],
-        ),
       );
     } else if (state is BluetoothDisabledState) {
       return Center(

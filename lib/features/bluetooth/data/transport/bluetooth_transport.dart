@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:bluetooth_per/core/utils/log_manager.dart';
 import 'package:flutter_blue_classic/flutter_blue_classic.dart';
 
 /// Обёртка над [FlutterBlueClassic], предоставляющая минимальный
@@ -45,15 +46,15 @@ class BluetoothTransport {
     _connection = await _bluetooth.connect(mac);
 
     if (!(_connection?.isConnected ?? false)) {
+      LogManager.error(
+          'BLUETOOTH', 'Не удалось подключиться к транспорту: $mac');
       throw Exception('Failed to connect to $mac');
     }
 
-    // Каждую полученную порцию данных прокидываем наружу.
     _inputSub = _connection!.input?.listen(
       (data) => _bytesController?.add(data),
       onError: (error) => _bytesController?.addError(error),
       onDone: () {
-        // Don't close the controller here, just mark the connection as done
         print('Bluetooth connection input stream closed');
       },
       cancelOnError: true,
@@ -62,8 +63,17 @@ class BluetoothTransport {
 
   /// Отправляет «сырые» байты [data] через открытый сокет.
   void write(List<int> data) {
-    if (!isConnected) throw StateError('Not connected');
-    _connection!.output.add(Uint8List.fromList(data));
+    if (!isConnected) {
+      LogManager.error(
+          'BLUETOOTH', 'Попытка записи в неподключенный транспорт');
+      throw StateError('Not connected');
+    }
+    try {
+      _connection!.output.add(Uint8List.fromList(data));
+    } catch (e) {
+      LogManager.error('BLUETOOTH', 'Ошибка записи в транспорт: $e');
+      rethrow;
+    }
   }
 
   /// Закрывает сокет и освобождает ресурсы.
