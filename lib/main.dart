@@ -2,9 +2,11 @@ import 'dart:io';
 
 import 'package:bluetooth_per/features/bluetooth/presentation/screens/flow_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'core/config.dart';
 import 'core/data/main_data.dart';
 import 'core/di/injection_container.dart' as di;
 import 'core/utils/log_manager.dart';
@@ -16,7 +18,16 @@ import 'features/settings/settings_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Инициализируем логгер
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: AppConfig.primaryColor, // Прозрачный фон статус-бара
+      statusBarIconBrightness:
+          Brightness.light, // Темные иконки для светлого фона
+      statusBarBrightness: Brightness.light, // Для iOS
+    ),
+  );
+
+
   try {
     await LogManager.initialize();
     await LogManager.warning('APP', 'Приложение успешно запущено');
@@ -33,9 +44,12 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       title: 'Quantor Data Transfer',
-      home: HomePage(),
+      theme: ThemeData(
+        scaffoldBackgroundColor: Colors.white,
+      ),
+      home: const HomePage(),
     );
   }
 }
