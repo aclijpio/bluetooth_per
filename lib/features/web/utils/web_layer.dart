@@ -16,18 +16,24 @@ class WebLayer {
     await LogManager.web(
         'WEB', 'Начинаем экспорт списка операций для устройства: $serial');
 
+    // Подсчитываем общее количество точек
+    final totalPoints =
+        operations.fold<int>(0, (sum, op) => sum + op.points.length);
+    final operationsWithPoints =
+        operations.where((op) => op.points.isNotEmpty).toList();
+
+    await LogManager.web('WEB',
+        'Всего операций: ${operations.length}, операций с точками: ${operationsWithPoints.length}, общее количество точек: $totalPoints');
+
     Map<String, dynamic> request = {
       "serial": serial,
       "uuid": constUuid,
-      "operations": operations
-          .where((op) => op.points.isNotEmpty)
-          .map((e) => e.dtAndCount())
-          .toList(),
+      "operations": operationsWithPoints.map((e) => e.dtAndCount()).toList(),
     };
 
     String reqStr = json.encode(request);
     await LogManager.web(
-        'WEB', 'Отправляем запрос с ${operations.length} операциями');
+        'WEB', 'Отправляем запрос с ${operationsWithPoints.length} операциями');
     print('[WebLayer] exportOperList: request=$reqStr');
     dynamic response =
         await ServerConnection.postReq(reqStr, 'get_archive_list')
@@ -45,8 +51,8 @@ class WebLayer {
       Map<String, dynamic> responseMap = json.decode(response);
       final operationsList =
           (responseMap['operations'] as List).map((e) => e as int).toList();
-      await LogManager.web('WEB',
-          'Запрос успешен, получено ${operationsList.length} операций');
+      await LogManager.web(
+          'WEB', 'Запрос успешен, получено ${operationsList.length} операций');
       return OperListResponse(200, operationsList);
     }
   }
@@ -54,6 +60,9 @@ class WebLayer {
   static Future<int> exportOperData(String serial, Operation op) async {
     await LogManager.web('WEB',
         'Начинаем экспорт данных операции для устройства: $serial, операция: ${op.dt}');
+
+    await LogManager.web('WEB',
+        'Операция dt=${op.dt}: количество точек=${op.points.length}, pCnt=${op.pCnt}');
 
     Map<String, dynamic> request = {
       "serial": serial,

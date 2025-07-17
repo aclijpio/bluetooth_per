@@ -35,10 +35,8 @@ class AppConfig {
   // 2. Создать пароль приложения: https://myaccount.google.com/apppasswords
   static const String smtpHost = 'smtp.gmail.com';
   static const int smtpPort = 587;
-  static const String senderEmail =
-      'aclijpio@gmail.com';
-  static const String senderPassword =
-      'ljld nvsf ufop qrht';
+  static const String senderEmail = 'aclijpio@gmail.com';
+  static const String senderPassword = 'ljld nvsf ufop qrht';
   static const String senderName = 'Trasnfer-QT ';
 
   // Значения

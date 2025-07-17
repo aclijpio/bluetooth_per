@@ -221,13 +221,9 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
               Left(BluetoothFailure(message: 'Неизвестная ошибка разрешений')));
     }
 
-    print(
-        '[BluetoothRepository] Все проверки пройдены, начинаем сканирование...');
-
     try {
-      const int maxAttempts = 3; // Увеличиваем количество попыток
-      const Duration attemptDuration =
-          Duration(seconds: 15); // Увеличиваем время сканирования
+      const int maxAttempts = 3;
+      const Duration attemptDuration = Duration(seconds: 15);
 
       final found = <BluetoothDeviceEntity>[];
 
@@ -235,11 +231,9 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         print(
             '[BluetoothRepository] Попытка сканирования ${attempt + 1}/$maxAttempts');
 
-        // Останавливаем предыдущее сканирование
         try {
           _flutterBlueClassic.stopScan();
-          await Future.delayed(const Duration(
-              milliseconds: 500)); // Пауза между остановкой и запуском
+          await Future.delayed(const Duration(milliseconds: 500));
         } catch (e) {
           await LogManager.bluetooth(
               'BLUETOOTH',
@@ -334,34 +328,54 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     final completer = Completer<BluetoothConnection?>();
     Timer? timeoutTimer;
     bool finished = false;
-    timeoutTimer = Timer(AppConfig.bluetoothCommandTimeout, () {
+
+    // Увеличиваем таймаут для более стабильного соединения
+    timeoutTimer = Timer(AppConfig.bluetoothCommandTimeout * 2, () {
       if (!finished) {
         finished = true;
         completer.completeError(TimeoutException('Таймаут подключения'));
       }
     });
+
     () async {
       while (attempts < maxAttempts && !finished) {
         try {
+          await LogManager.bluetooth('BLUETOOTH',
+              'Попытка подключения ${attempts + 1}/$maxAttempts к ${device.name}');
+
           connection = await _flutterBlueClassic.connect(device.address);
           if (connection == null) {
             attempts++;
             await Future.delayed(AppConfig.shortDelay);
             continue;
           }
+
+          // Увеличиваем время ожидания стабилизации соединения
           int waitAttempts = 0;
-          while (!(connection?.isConnected ?? false) && waitAttempts < 3) {
+          while (!(connection?.isConnected ?? false) && waitAttempts < 5) {
             await Future.delayed(AppConfig.veryShortDelay);
             waitAttempts++;
           }
+
           if (!(connection?.isConnected ?? false)) {
             attempts++;
             await Future.delayed(AppConfig.shortDelay);
             continue;
           }
+
+          // Дополнительная проверка стабильности соединения
+          await Future.delayed(const Duration(milliseconds: 200));
+          if (!(connection?.isConnected ?? false)) {
+            attempts++;
+            await Future.delayed(AppConfig.shortDelay);
+            continue;
+          }
+
           if (!finished && connection != null) {
             finished = true;
             timeoutTimer?.cancel();
+            await LogManager.bluetooth('BLUETOOTH',
+                'Успешно подключились к ${device.name} после ${attempts + 1} попыток');
             completer.complete(connection);
           }
           return;
@@ -370,7 +384,8 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
           LogManager.warning('BLUETOOTH',
               'Ошибка подключения к ${device.name}, попытка $attempts из $maxAttempts: $e');
           if (attempts < maxAttempts) {
-            await Future.delayed(AppConfig.shortDelay);
+            // Увеличиваем задержку между попытками
+            await Future.delayed(AppConfig.shortDelay * 2);
           }
         }
       }
@@ -515,15 +530,114 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       }
 
       if (!finalFileName.toLowerCase().endsWith('.db')) {
-        finalFileName = '${finalFileName}_NEED_EXPORT.db';
+        finalFileName += '.db';
       }
 
-      final deviceName = device.name?.replaceAll(' ', '') ?? 'Unknown';
-      final finalPath =
-          p.join(downloadDir.path, '${deviceName}${finalFileName}');
+      // Извлекаем только государственный номер из имени устройства, убирая "Quantor"
+      String deviceSerial = 'Unknown';
+      if (device.name != null) {
+        // Убираем "Quantor" из начала имени и оставляем только государственный номер
+        final nameWithoutQuantor = device.name!
+            .replaceFirst(RegExp(r'^Quantor\s*', caseSensitive: false), '');
+        deviceSerial = nameWithoutQuantor.replaceAll(RegExp(r'[^\w]'), '');
+        if (deviceSerial.isEmpty) {
+          deviceSerial = 'Unknown';
+        }
+      }
+      finalFileName =
+          '${deviceSerial}_${finalFileName.replaceFirst('.db', '')}_${AppConfig.notExportedSuffix}.db';
 
-      await LogManager.bluetooth(
-          'BLUETOOTH', 'Файл будет сохранен как: $finalPath');
+      int receivedBytes = 0;
+      int expectedFileSize = 0;
+      bool isReadingFileData = false;
+      bool isDownloadCompleted = false; // Флаг завершения загрузки
+      bool isProcessingData =
+          false; // Флаг обработки данных для предотвращения race conditions
+      final responseBuffer = <int>[];
+      final memoryBuffer = BytesBuilder();
+      File? tempFile;
+      IOSink? sink;
+      bool switchedToFile = false;
+      const memoryLimit = 10 * 1024 * 1024;
+
+      int dataChunksReceived = 0;
+      int lastLoggedChunkCount = 0;
+      int progressUpdates = 0;
+      int lastLoggedProgressCount = 0;
+
+      Future<void> flushAndCloseSink() async {
+        if (sink != null) {
+          await sink!.flush();
+          await sink!.close();
+          sink = null;
+        }
+      }
+
+      Future<void> addToBufferOrFile(List<int> data) async {
+        // Проверяем, не завершена ли уже загрузка
+        if (isDownloadCompleted) {
+          await LogManager.bluetooth('BLUETOOTH',
+              'Игнорируем данные после завершения загрузки: ${data.length} байт');
+          return;
+        }
+
+        // Защита от race conditions
+        if (isProcessingData) {
+          await LogManager.bluetooth('BLUETOOTH',
+              'Пропускаем данные во время обработки предыдущего чанка: ${data.length} байт');
+          return;
+        }
+
+        isProcessingData = true;
+        try {
+          receivedBytes += data.length;
+          dataChunksReceived++;
+
+          // Оптимизируем логирование - реже для больших файлов
+          final logInterval = expectedFileSize > 1024 * 1024 ? 100 : 50;
+          if (dataChunksReceived - lastLoggedChunkCount >= logInterval) {
+            await LogManager.bluetooth('BLUETOOTH',
+                'Получено данных: ${dataChunksReceived - lastLoggedChunkCount} чанков, всего $receivedBytes байт');
+            lastLoggedChunkCount = dataChunksReceived;
+          }
+
+          if (!switchedToFile) {
+            memoryBuffer.add(data);
+            // Увеличиваем лимит памяти для больших файлов
+            final currentMemoryLimit = expectedFileSize > 5 * 1024 * 1024
+                ? memoryLimit * 2
+                : memoryLimit;
+            if (memoryBuffer.length >= currentMemoryLimit) {
+              await LogManager.bluetooth('BLUETOOTH',
+                  'Переключаемся на сохранение в temp файл (превышен лимит памяти: ${currentMemoryLimit / 1024 / 1024} MB)');
+              tempFile = File(p.join(directory.path, sanitizedFileName));
+              sink = tempFile!.openWrite();
+              sink!.add(memoryBuffer.takeBytes());
+              switchedToFile = true;
+            }
+          } else {
+            sink!.add(data);
+          }
+
+          if (expectedFileSize > 0) {
+            final progress = receivedBytes / expectedFileSize;
+            progressUpdates++;
+
+            // Оптимизируем обновления прогресса
+            final progressLogInterval =
+                expectedFileSize > 1024 * 1024 ? 50 : 20;
+            if (progressUpdates - lastLoggedProgressCount >=
+                progressLogInterval) {
+              await LogManager.bluetooth('BLUETOOTH',
+                  'Прогресс загрузки: ${(progress * 100).toStringAsFixed(1)}% (${progressUpdates - lastLoggedProgressCount} обновлений)');
+              lastLoggedProgressCount = progressUpdates;
+            }
+            onProgress?.call(progress, expectedFileSize);
+          }
+        } finally {
+          isProcessingData = false;
+        }
+      }
 
       BluetoothConnection? connection = _connection;
       int retryCount = 0;
@@ -531,6 +645,26 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
       while (retryCount < maxRetries && !_isCancelled) {
         try {
+          // Сброс состояния для новой попытки
+          receivedBytes = 0;
+          expectedFileSize = 0;
+          isReadingFileData = false;
+          isDownloadCompleted = false;
+          isProcessingData = false;
+          responseBuffer.clear();
+          memoryBuffer.clear();
+          tempFile = null;
+          sink = null;
+          switchedToFile = false;
+          dataChunksReceived = 0;
+          lastLoggedChunkCount = 0;
+          progressUpdates = 0;
+          lastLoggedProgressCount = 0;
+
+          // Отменяем предыдущую подписку если она существует
+          await _downloadSubscription?.cancel();
+          _downloadSubscription = null;
+
           if (connection == null || !(connection.isConnected)) {
             await LogManager.bluetooth('BLUETOOTH',
                 'Переподключаемся к устройству для загрузки файла (попытка ${retryCount + 1})');
@@ -546,270 +680,267 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
           await LogManager.bluetooth(
               'BLUETOOTH', 'Отправляем команду получения архива: $fileName');
-
-          // Отправляем команду получения файла
-          await LogManager.bluetooth(
-              'BLUETOOTH', 'Отправляем команду получения архива: $fileName');
           connection.output.add(BluetoothProtocol.getArchiveCmd(fileName));
 
-          // Ожидаем ответ от устройства
-          await LogManager.bluetooth(
-              'BLUETOOTH', 'Ожидаем ответ от устройства...');
-          final response = await connection.input!.first;
+          final responseCompleter = Completer<bool>();
+          int responseChunks = 0;
+          int lastLoggedResponseCount = 0;
 
-          // Декодируем ответ вручную (так как _decode приватный)
-          String responseStr = '';
-          if (response.length >= 2) {
-            final len = (response[0] << 8) | response[1];
-            if (response.length >= 2 + len) {
-              responseStr = utf8.decode(response.sublist(2, 2 + len));
-            }
-          }
+          _downloadSubscription = connection.input?.listen(
+            (data) async {
+              // Проверяем, не завершена ли уже загрузка
+              if (isDownloadCompleted) {
+                await LogManager.bluetooth('BLUETOOTH',
+                    'Игнорируем чанк данных после завершения загрузки: ${data.length} байт');
+                return;
+              }
 
-          await LogManager.bluetooth(
-              'BLUETOOTH', 'Получен ответ от устройства: $responseStr');
+              responseChunks++;
 
-          // Проверяем различные форматы ответа
-          int expectedFileSize = 0;
+              if (responseChunks - lastLoggedResponseCount >= 100) {
+                await LogManager.bluetooth('BLUETOOTH',
+                    'Обработано ${responseChunks - lastLoggedResponseCount} чанков ответа');
+                lastLoggedResponseCount = responseChunks;
+              }
 
-          if (responseStr.startsWith('FILE_SIZE:')) {
-            final sizeStr = responseStr.substring(10).trim();
-            expectedFileSize = int.tryParse(sizeStr) ?? 0;
-          } else if (responseStr.startsWith('SIZE:')) {
-            final sizeStr = responseStr.substring(5).trim();
-            expectedFileSize = int.tryParse(sizeStr) ?? 0;
-          } else if (responseStr == 'OK' || responseStr == 'READY') {
-            // Устройство готово отправлять файл, но размер неизвестен
-            await LogManager.bluetooth('BLUETOOTH',
-                'Устройство готово к отправке файла, размер будет определен динамически');
-            expectedFileSize = -1; // Флаг для динамического определения
-          } else {
-            await LogManager.bluetooth('BLUETOOTH',
-                'Неизвестный формат ответа, предполагаем что файл начинается сразу');
-            expectedFileSize = -1; // Флаг для динамического определения
-          }
+              if (_isCancelled) {
+                await flushAndCloseSink();
+                if (!responseCompleter.isCompleted) {
+                  responseCompleter.complete(false);
+                }
+                return;
+              }
 
-          if (expectedFileSize > 0) {
-            await LogManager.bluetooth('BLUETOOTH',
-                'Ожидаемый размер файла: $expectedFileSize байт (${(expectedFileSize / 1024 / 1024).toStringAsFixed(2)} MB)');
-          }
+              if (!isReadingFileData) {
+                responseBuffer.addAll(data);
+                if (responseBuffer.length >= 8) {
+                  await LogManager.bluetooth(
+                      'BLUETOOTH', 'Получен заголовок файла, парсим размер');
+                  final sizeBytes =
+                      Uint8List.fromList(responseBuffer.sublist(0, 8));
+                  expectedFileSize =
+                      ByteData.view(sizeBytes.buffer).getInt64(0, Endian.big);
+                  await LogManager.bluetooth('BLUETOOTH',
+                      'Ожидаемый размер файла: $expectedFileSize байт (${(expectedFileSize / 1024 / 1024).toStringAsFixed(2)} MB)');
+                  final remaining = responseBuffer.sublist(8);
+                  responseBuffer.clear();
+                  isReadingFileData = true;
+                  if (remaining.isNotEmpty) await addToBufferOrFile(remaining);
+                }
+              } else {
+                await addToBufferOrFile(data);
+              }
 
-          // Накапливаем данные в памяти (для небольших файлов) или записываем на диск (для больших)
-          const int memoryLimit = 10 * 1024 * 1024; // 10 MB лимит для памяти
-          List<int>? memoryBuffer;
-          File? tempFile;
-          IOSink? fileSink;
-          bool useFileStorage =
-              expectedFileSize > memoryLimit || expectedFileSize == -1;
+              // Проверяем завершение загрузки только если еще не завершена
+              if (!isDownloadCompleted &&
+                  expectedFileSize > 0 &&
+                  receivedBytes >= expectedFileSize) {
+                isDownloadCompleted = true; // Устанавливаем флаг завершения
+                await LogManager.bluetooth('BLUETOOTH',
+                    'Загрузка завершена: получено $receivedBytes/$expectedFileSize байт, обработано $dataChunksReceived чанков данных');
+                await flushAndCloseSink();
 
-          int receivedBytes = 0;
-          int dataChunksReceived = 0;
-          int progressUpdateCounter = 0;
+                // Отменяем подписку на данные после завершения
+                await _downloadSubscription?.cancel();
+                _downloadSubscription = null;
 
-          if (useFileStorage) {
-            await LogManager.bluetooth('BLUETOOTH',
-                'Файл большой (${(expectedFileSize / 1024 / 1024).toStringAsFixed(1)} MB), используем потоковую запись на диск');
-            tempFile = File(p.join(directory.path, 'temp_$sanitizedFileName'));
-            fileSink = tempFile!.openWrite();
-          } else {
-            await LogManager.bluetooth('BLUETOOTH',
-                'Файл небольшой (${(expectedFileSize / 1024 / 1024).toStringAsFixed(1)} MB), используем память');
-            memoryBuffer = [];
-          }
+                String finalPath;
+                if (!switchedToFile) {
+                  final bytes = memoryBuffer.takeBytes();
+                  if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
+                    try {
+                      if (bytes.length < 10) {
+                        throw Exception(
+                            'Файл слишком мал для gzip архива: ${bytes.length} байт');
+                      }
 
-          // Для динамического размера добавляем таймаут
-          final downloadTimeout = expectedFileSize == -1
-              ? Duration(seconds: 30) // 30 секунд для неизвестного размера
-              : Duration(seconds: 60); // 60 секунд для известного размера
+                      // Проверяем gzip заголовок (магические байты: 0x1f 0x8b)
+                      if (bytes[0] != 0x1f || bytes[1] != 0x8b) {
+                        throw Exception(
+                            'Неверный gzip заголовок: ${bytes[0].toRadixString(16)} ${bytes[1].toRadixString(16)}');
+                      }
 
-          final startTime = DateTime.now();
+                      await LogManager.bluetooth('BLUETOOTH',
+                          'Начинаем распаковку .gz файла $fileName в памяти, размер: ${bytes.length} байт');
+                      final decompressedBytes = gzip.decode(bytes);
+                      await LogManager.bluetooth('BLUETOOTH',
+                          'Распаковка завершена, размер после распаковки: ${decompressedBytes.length} байт');
 
-          await for (final chunk
-              in connection.input!.timeout(downloadTimeout)) {
-            if (_isCancelled) {
+                      final rawFile =
+                          File(p.join(downloadDir.path, finalFileName));
+                      await rawFile.writeAsBytes(decompressedBytes);
+                      finalPath = rawFile.path;
+
+                      await LogManager.bluetooth(
+                          'BLUETOOTH', 'Файл БД сохранен: $finalPath');
+
+                      await _validateDatabaseFile(finalPath);
+
+                      await ArchiveSyncManager.addPending(finalPath);
+                    } catch (e) {
+                      LogManager.error('BLUETOOTH',
+                          'Ошибка распаковки .gz файла $fileName: $e');
+                      finalPath =
+                          p.join(directory.path, sanitizedFileName); // fallback
+                      await File(finalPath).writeAsBytes(bytes);
+                    }
+                  } else {
+                    final destPath = p.join(downloadDir.path, finalFileName);
+                    await File(destPath).writeAsBytes(bytes);
+                    finalPath = destPath;
+                    await ArchiveSyncManager.addPending(finalPath);
+                  }
+                  onComplete?.call(finalPath);
+                  if (!responseCompleter.isCompleted) {
+                    responseCompleter.complete(true);
+                  }
+                } else {
+                  if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
+                    try {
+                      await LogManager.bluetooth('BLUETOOTH',
+                          'Начинаем распаковку .gz файла из temp файла: ${tempFile!.path}');
+
+                      final tempFileSize = await tempFile!.length();
+                      await LogManager.bluetooth(
+                          'BLUETOOTH', 'Размер temp файла: $tempFileSize байт');
+
+                      // Валидация gzip файла перед распаковкой
+                      if (tempFileSize < 10) {
+                        throw Exception(
+                            'Файл слишком мал для gzip архива: $tempFileSize байт');
+                      }
+
+                      // Проверяем gzip заголовок
+                      final headerBytes = await tempFile!.openRead(0, 2).first;
+                      if (headerBytes.length < 2 ||
+                          headerBytes[0] != 0x1f ||
+                          headerBytes[1] != 0x8b) {
+                        throw Exception('Неверный gzip заголовок в temp файле');
+                      }
+
+                      final rawFile =
+                          File(p.join(downloadDir.path, finalFileName));
+                      await tempFile!
+                          .openRead()
+                          .transform(gzip.decoder)
+                          .pipe(rawFile.openWrite());
+                      finalPath = rawFile.path;
+
+                      final decompressedSize = await rawFile.length();
+                      await LogManager.bluetooth('BLUETOOTH',
+                          'Распаковка завершена, размер после распаковки: $decompressedSize байт');
+
+                      await tempFile!.delete();
+                      await LogManager.bluetooth('BLUETOOTH',
+                          'Temp файл удален, файл БД сохранен: $finalPath');
+
+                      await _validateDatabaseFile(finalPath);
+
+                      await ArchiveSyncManager.addPending(finalPath);
+                    } catch (e) {
+                      LogManager.error('BLUETOOTH',
+                          'Ошибка распаковки .gz файла из temp: $fileName: $e');
+                      finalPath = tempFile!.path; // fallback
+                    }
+                  } else {
+                    final destPath = p.join(downloadDir.path, finalFileName);
+                    bool moved = false;
+                    try {
+                      await tempFile!.rename(destPath);
+                      moved = true;
+                      await ArchiveSyncManager.addPending(destPath);
+                    } catch (_) {
+                      try {
+                        await tempFile!.copy(destPath);
+                        await tempFile!.delete();
+                        moved = true;
+                        await ArchiveSyncManager.addPending(destPath);
+                      } catch (e) {
+                        LogManager.error('BLUETOOTH',
+                            'Не удалось переместить файл $fileName: $e');
+                      }
+                    }
+                    finalPath = moved ? destPath : tempFile!.path;
+                    await ArchiveSyncManager.addPending(finalPath);
+                  }
+                  onComplete?.call(finalPath);
+                  if (!responseCompleter.isCompleted) {
+                    responseCompleter.complete(true);
+                  }
+                }
+              }
+            },
+            onError: (error) async {
               await LogManager.bluetooth(
-                  'BLUETOOTH', 'Загрузка отменена пользователем');
-              await fileSink?.close();
-              await tempFile?.delete();
-              return const Left(
-                  FileOperationFailure(message: 'Операция отменена'));
-            }
-
-            if (useFileStorage) {
-              fileSink!.add(chunk);
-            } else {
-              memoryBuffer!.addAll(chunk);
-            }
-
-            receivedBytes += chunk.length;
-            dataChunksReceived++;
-
-/*            progressUpdateCounter++;
-            if (progressUpdateCounter >= 20) {
-              final progress =
-                  (receivedBytes / expectedFileSize * 100).toStringAsFixed(1);
+                  'BLUETOOTH', 'Ошибка в потоке данных: $error');
+              await flushAndCloseSink();
+              if (!responseCompleter.isCompleted) {
+                responseCompleter.completeError(error);
+              }
+            },
+            onDone: () async {
               await LogManager.bluetooth('BLUETOOTH',
-                  'Прогресс загрузки: ${progress}% (20 обновлений)');
+                  'Поток данных завершен: получено $receivedBytes байт из ожидаемых $expectedFileSize (чанков: $dataChunksReceived, ответов: $responseChunks)');
+              await flushAndCloseSink();
 
-              if (onProgress != null) {
-                final progress = receivedBytes / expectedFileSize;
-                onProgress(progress, expectedFileSize);
+              if (!isDownloadCompleted) {
+                if (receivedBytes < expectedFileSize && !_isCancelled) {
+                  LogManager.error('BLUETOOTH',
+                      'Неполная передача файла $fileName: получено $receivedBytes из $expectedFileSize байт');
+                  if (!responseCompleter.isCompleted) {
+                    responseCompleter.complete(false);
+                  }
+                } else if (!responseCompleter.isCompleted) {
+                  LogManager.info('BLUETOOTH',
+                      'Файл $fileName успешно загружен: $receivedBytes байт');
+                  responseCompleter.complete(true);
+                }
               }
-              progressUpdateCounter = 0;
-            }*/
+            },
+          );
 
-            // Проверяем завершение загрузки
-            if (expectedFileSize > 0 && receivedBytes >= expectedFileSize) {
-              await LogManager.bluetooth('BLUETOOTH',
-                  'Загрузка завершена: получено $receivedBytes/$expectedFileSize байт, обработано $dataChunksReceived чанков данных');
-              break;
-            } else if (expectedFileSize == -1) {
-              // Для динамического размера - проверяем таймаут или специальные маркеры
-              if (dataChunksReceived % 100 == 0) {
-                await LogManager.bluetooth('BLUETOOTH',
-                    'Получено данных: $receivedBytes байт, чанков: $dataChunksReceived');
-              }
+          final response = await responseCompleter.future;
 
-              // Проверяем таймаут для динамического размера
-              final elapsed = DateTime.now().difference(startTime);
-              if (elapsed.inSeconds > 25) {
-                // 25 секунд из 30
-                await LogManager.bluetooth('BLUETOOTH',
-                    'Загрузка завершена по таймауту: получено $receivedBytes байт за ${elapsed.inSeconds} секунд');
-                break;
-              }
-            }
+          if (_isCancelled) {
+            await tempFile?.delete();
+            return const Right(true);
           }
 
-          if (useFileStorage) {
-            await fileSink!.close();
+          if (response) {
+            // Передача успешна - вызываем onComplete
             await LogManager.bluetooth(
-                'BLUETOOTH', 'Временный файл сохранен: ${tempFile!.path}');
-          }
-
-          // Проверяем полноту загрузки
-          if (expectedFileSize > 0 && receivedBytes < expectedFileSize) {
-            LogManager.error('BLUETOOTH',
-                'Неполная передача файла $fileName: получено $receivedBytes из $expectedFileSize байт');
-            await tempFile?.delete();
-            retryCount++;
-            if (retryCount < maxRetries) {
-              await Future.delayed(AppConfig.uiShortDelay);
-              continue;
-            } else {
-              throw Exception(
-                  'Не удалось загрузить файл полностью после $maxRetries попыток');
-            }
-          } else if (expectedFileSize == -1 && receivedBytes == 0) {
-            LogManager.error('BLUETOOTH', 'Не получено данных от устройства');
-            await tempFile?.delete();
-            retryCount++;
-            if (retryCount < maxRetries) {
-              await Future.delayed(AppConfig.uiShortDelay);
-              continue;
-            } else {
-              throw Exception('Не получено данных после $maxRetries попыток');
-            }
-          }
-
-          // Обрабатываем .gz файлы
-          if (sanitizedFileName.toLowerCase().endsWith('.gz')) {
-            try {
-              if (useFileStorage) {
-                await LogManager.bluetooth('BLUETOOTH',
-                    'Начинаем распаковку .gz файла с диска: ${tempFile!.path}');
-
-                // Потоковая распаковка для больших файлов
-                final rawFile = File(finalPath);
-                await tempFile!
-                    .openRead()
-                    .transform(gzip.decoder)
-                    .pipe(rawFile.openWrite());
-
-                final decompressedSize = await rawFile.length();
-                await LogManager.bluetooth('BLUETOOTH',
-                    'Распаковка завершена, размер после распаковки: $decompressedSize байт');
-              } else {
-                await LogManager.bluetooth('BLUETOOTH',
-                    'Начинаем распаковку .gz файла из памяти, размер: ${memoryBuffer!.length} байт');
-
-                final decompressedBytes = gzip.decode(memoryBuffer!);
-                await LogManager.bluetooth('BLUETOOTH',
-                    'Распаковка завершена, размер после распаковки: ${decompressedBytes.length} байт');
-
-                final rawFile = File(finalPath);
-                await rawFile.writeAsBytes(decompressedBytes);
-              }
-
-              await LogManager.bluetooth(
-                  'BLUETOOTH', 'Файл БД сохранен: $finalPath');
-
-              // Проверяем целостность БД
-              await LogManager.bluetooth(
-                  'BLUETOOTH', 'Проверяем целостность БД файла: $finalPath');
-              await _validateDatabaseFile(finalPath);
-            } catch (e) {
-              LogManager.error('BLUETOOTH', 'Ошибка распаковки .gz файла: $e');
-              retryCount++;
-              if (retryCount < maxRetries) {
-                await Future.delayed(AppConfig.uiShortDelay);
-                continue;
-              } else {
-                throw Exception(
-                    'Не удалось распаковать файл после $maxRetries попыток: $e');
-              }
-            }
+                'BLUETOOTH', 'Файл $fileName успешно загружен и сохранен');
+            return const Right(true);
           } else {
-            // Копируем файл
-            if (useFileStorage) {
-              final rawFile = File(finalPath);
-              await tempFile!.copy(rawFile.path);
-              await LogManager.bluetooth(
-                  'BLUETOOTH', 'Файл скопирован: $finalPath');
-            } else {
-              final rawFile = File(finalPath);
-              await rawFile.writeAsBytes(memoryBuffer!);
-              await LogManager.bluetooth(
-                  'BLUETOOTH', 'Файл сохранен: $finalPath');
+            // Передача неуспешна - пробуем ещё раз
+            retryCount++;
+            LogManager.warning('BLUETOOTH',
+                'Неуспешная загрузка файла $fileName, попытка $retryCount из $maxRetries (получено $receivedBytes/$expectedFileSize байт, чанков: $dataChunksReceived)');
+            if (retryCount < maxRetries) {
+              await Future.delayed(AppConfig.uiShortDelay);
+              continue;
             }
           }
-
-          // Удаляем временный файл
-          if (useFileStorage && await tempFile!.exists()) {
-            await tempFile!.delete();
-            await LogManager.bluetooth('BLUETOOTH', 'Временный файл удален');
-          }
-
-          await LogManager.bluetooth(
-              'BLUETOOTH', 'Файл $fileName успешно загружен и сохранен');
-
-          if (onComplete != null) {
-            onComplete(finalPath);
-          }
-
-          return const Right(true);
         } catch (e) {
           retryCount++;
           LogManager.error('BLUETOOTH',
-              'Ошибка при загрузке файла $fileName (попытка $retryCount): $e');
-
+              'Ошибка при загрузке файла $fileName, попытка $retryCount из $maxRetries: $e (получено $receivedBytes байт, чанков: $dataChunksReceived)');
           if (retryCount < maxRetries) {
             await Future.delayed(AppConfig.uiShortDelay);
             continue;
-          } else {
-            return Left(FileOperationFailure(
-                message:
-                    'Не удалось загрузить файл после $maxRetries попыток: $e'));
           }
         }
       }
 
-      return const Left(FileOperationFailure(
-          message: 'Превышено количество попыток загрузки'));
+      if (_isCancelled) {
+        await tempFile?.delete();
+        return const Right(true);
+      }
+      return Left(FileOperationFailure(
+          message:
+              'Не удалось загрузить файл после $maxRetries попыток. Файл может быть повреждён или соединение нестабильно.'));
     } catch (e) {
-      LogManager.error(
-          'BLUETOOTH', 'Критическая ошибка при загрузке файла: $e');
-      return Left(FileOperationFailure(message: 'Ошибка загрузки файла: $e'));
+      return Left(FileOperationFailure(message: e.toString()));
     }
   }
 
@@ -961,16 +1092,53 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       await LogManager.bluetooth(
           'BLUETOOTH', 'Размер файла БД: $fileSize байт');
 
+      // Проверяем минимальный размер SQLite файла
+      if (fileSize < 512) {
+        throw Exception('Файл БД слишком мал для SQLite: $fileSize байт');
+      }
+
       // Проверяем заголовок SQLite файла
       final bytes = await file.openRead(0, 16).first;
+      if (bytes.length < 16) {
+        throw Exception('Не удалось прочитать заголовок SQLite файла');
+      }
+
       final header = String.fromCharCodes(bytes.take(16));
 
       if (!header.startsWith('SQLite format 3')) {
         throw Exception('Неверный заголовок SQLite файла: $header');
       }
 
+      // Проверяем версию SQLite (байты 19-20)
+      if (bytes.length >= 20) {
+        final versionBytes = bytes.sublist(18, 20);
+        final version = versionBytes[0] * 256 + versionBytes[1];
+        await LogManager.bluetooth(
+            'BLUETOOTH', 'Версия SQLite файла: $version');
+      }
+
+      // Проверяем, что файл не пустой в конце
+      final lastBytes = await file.openRead(fileSize - 16, fileSize).first;
+      if (lastBytes.length < 16) {
+        throw Exception('Не удалось прочитать конец SQLite файла');
+      }
+
+      // Проверяем, что последние байты не все нули (признак повреждения)
+      bool allZeros = true;
+      for (int i = 0; i < lastBytes.length; i++) {
+        if (lastBytes[i] != 0) {
+          allZeros = false;
+          break;
+        }
+      }
+
+      if (allZeros) {
+        throw Exception(
+            'Конец файла БД содержит только нули - возможное повреждение');
+      }
+
       await LogManager.bluetooth(
-          'BLUETOOTH', 'Файл БД прошел базовую проверку целостности');
+          'BLUETOOTH', 'Файл БД прошел расширенную проверку целостности');
     } catch (e) {
       await LogManager.bluetooth(
           'BLUETOOTH', 'Ошибка проверки целостности БД: $e', LogLevel.error);

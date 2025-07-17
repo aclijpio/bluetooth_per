@@ -494,6 +494,7 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
       );
     } else if (state is BluetoothDisabledState) {
       return Column(
+        spacing: AppConfig.spacingSmall,
         children: [
           PrimaryButton(
             label: 'Включить Bluetooth',
@@ -501,7 +502,6 @@ class _DeviceFlowScreenBodyState extends State<DeviceFlowScreenBody> {
               cubit.enableBluetooth();
             },
           ),
-          const SizedBox(height: AppConfig.spacingSmall),
           TextButton(
             onPressed: () {
               cubit.startScanning();

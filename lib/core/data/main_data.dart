@@ -4,7 +4,6 @@ import 'package:bluetooth_per/core/data/source/device_info.dart';
 import 'package:bluetooth_per/core/data/source/operation.dart';
 import 'package:bluetooth_per/core/data/source/point.dart';
 import 'package:bluetooth_per/core/utils/log_manager.dart';
-import 'package:bluetooth_per/core/utils/memory_monitor.dart';
 import 'package:bluetooth_per/features/web/data/source/oper_list_response.dart';
 import 'package:bluetooth_per/features/web/utils/db_layer.dart';
 import 'package:bluetooth_per/features/web/utils/web_layer.dart';
@@ -14,7 +13,6 @@ enum OperStatus { ok, dbError, netError, filePathError }
 
 class MainData {
   bool allSelected = false;
-  static const int _maxCacheSize = 50;
 
   DeviceInfo deviceInfo = DeviceInfo.empty();
   List<Operation> operations = [];
@@ -22,33 +20,7 @@ class MainData {
   String dbPath = '';
   //Database? db;
 
-  final Map<int, List<Point>> _pointsCache = {};
-
-  void _cleanupOldCacheEntries() {
-    if (_pointsCache.length > _maxCacheSize) {
-      final entries = _pointsCache.entries.toList();
-      entries.sort((a, b) => a.key.compareTo(b.key));
-
-      final toRemove = entries.take(_pointsCache.length - _maxCacheSize);
-      for (final entry in toRemove) {
-        _pointsCache.remove(entry.key);
-      }
-      MemoryMonitor.logCacheSize('PointsCache', _pointsCache.length);
-      print(
-          '[MainData] Cleaned cache: removed ${toRemove.length} entries, ${_pointsCache.length} remaining');
-    }
-  }
-
-  void clearCache() {
-    final oldSize = _pointsCache.length;
-    _pointsCache.clear();
-    MemoryMonitor.logCacheSize('PointsCache', 0);
-    print('[MainData] Cache cleared completely (was $oldSize entries)');
-  }
-
   void dispose() {
-    MemoryMonitor.logMemoryUsage('MainData.dispose');
-    clearCache();
     operations.clear();
     deviceInfo = DeviceInfo.empty();
     dbPath = '';
@@ -67,12 +39,13 @@ class MainData {
       return OperStatus.ok;
     }
 
+    await DbLayer.resetConnection();
+
     Database db = await DbLayer.getDb(dbPath);
     db ??= await DbLayer.initDb(dbPath);
     if (db == null) {
       LogManager.error(
           'DB', 'Не удалось инициализировать базу данных: $dbPath');
-      print('[MainData] awaitOperations: dbError');
       return OperStatus.dbError;
     }
 
@@ -89,19 +62,30 @@ class MainData {
     deviceInfo = await DbLayer.getDeviceInfo(db!);
     operations = await DbLayer.getOperationList(db!);
 
-    setDtStopToOperations();
+    await setDtStopToOperations();
     return OperStatus.ok;
   }
 
-  setDtStopToOperations() {
+  Future<void> setDtStopToOperations() async {
+    await LogManager.database(
+        'DB', 'Устанавливаем dtStop для ${operations.length} операций');
+
     if (operations.length > 1) {
       Operation prevOper = operations.first;
       for (int i = 1; i < operations.length; i++) {
+        final oldDtStop = prevOper.dtStop;
         prevOper.dtStop = operations[i].dt - 1;
+        await LogManager.database('DB',
+            'Операция dt=${prevOper.dt}: dtStop изменен с $oldDtStop на ${prevOper.dtStop}');
         prevOper = operations[i];
       }
     }
-    operations.last.dtStop = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    final currentTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final oldDtStop = operations.last.dtStop;
+    operations.last.dtStop = currentTime;
+    await LogManager.database('DB',
+        'Последняя операция dt=${operations.last.dt}: dtStop изменен с $oldDtStop на $currentTime');
   }
 
   Future<OperStatus> awaitOperationPoints(Operation op) async {
@@ -116,16 +100,14 @@ class MainData {
       return OperStatus.dbError;
     }
 
-    if (_pointsCache.containsKey(op.dt)) {
-      op.points = _pointsCache[op.dt]!;
-    } else {
-      op.points = await DbLayer.getOperationPoints(db!, op.dt, op.dtStop);
-      _pointsCache[op.dt] = op.points;
-      _cleanupOldCacheEntries();
-    }
+    await LogManager.database(
+        'DB', 'Загружаем точки для операции dt=${op.dt}, dtStop=${op.dtStop}');
 
+    op.points = await DbLayer.getOperationPoints(db!, op.dt, op.dtStop);
     op.pCnt = op.points.length;
-    print('operation points count  = ${op.pCnt}');
+
+    await LogManager.database(
+        'DB', 'Операция dt=${op.dt}: загружено ${op.pCnt} точек');
 
     return OperStatus.ok;
   }
@@ -156,7 +138,6 @@ class MainData {
       int pos = operations.indexWhere((e) => e.dt == dt);
       if (pos >= 0) operations[pos].canSend = true;
     }
-    print('[MainData] awaitOperationsCanSendStatus: canSend updated');
     return OperStatus.ok;
   }
 
@@ -182,14 +163,12 @@ class MainData {
     deviceInfo = DeviceInfo.empty();
     operations.clear();
     allSelected = false;
-    clearCache();
   }
 
   void setDbPath(String newPath) {
     if (dbPath != newPath) {
-      clearCache();
       dbPath = newPath;
-      print('[MainData] DB path changed, cache cleared');
+      print('[MainData] DB path changed');
     }
   }
 

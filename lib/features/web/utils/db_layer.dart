@@ -17,11 +17,12 @@ class DbLayer {
   static Future<Database> getDb(String newPath) async {
     await LogManager.database('DB', 'Запрос подключения к БД: $newPath');
 
-    if ((newPath != curDbPath) && (_db != null)) {
+    if (_db != null) {
       await LogManager.database(
           'DB', 'Закрываем предыдущее подключение к БД: $curDbPath');
       await _db?.close();
       _db = null;
+      curDbPath = '';
     }
 
     if (_db != null) {
@@ -147,13 +148,27 @@ class DbLayer {
 
   static Future<List<Point>> getOperationPoints(
       Database db, int dt1, int dt2) async {
+    await LogManager.database(
+        'DB', 'Запрашиваем точки для операции dt1=$dt1, dt2=$dt2');
+
+    var totalRes = await db.query('tmc_points', columns: ['COUNT(*) as count']);
+    final totalPoints = totalRes.first['count'] as int;
+    await LogManager.database(
+        'DB', 'Общее количество точек в БД: $totalPoints');
+
     var res = await db.query(
       'tmc_points',
       columns: ['date', 'point', 'lat', 'lon', 'speed'],
       where: 'date > ? and date < ?',
       whereArgs: [dt1, dt2],
     );
+
+    await LogManager.database('DB',
+        'Найдено ${res.length} точек в БД для операции dt1=$dt1, dt2=$dt2');
+
     if (res.isEmpty) {
+      await LogManager.database(
+          'DB', 'Точки не найдены для операции dt1=$dt1, dt2=$dt2');
       return [];
     } else {
       List<Point> resultList = [];
@@ -164,6 +179,9 @@ class DbLayer {
           resultList.add(point);
         }
       }
+
+      await LogManager.database('DB',
+          'После дедупликации осталось ${resultList.length} уникальных точек для операции dt1=$dt1, dt2=$dt2');
       return resultList;
       //return res.map((e) => Point.fromMap(e)).toList();
     }
@@ -181,6 +199,13 @@ class DbLayer {
   }
 
   static Future<void> closeDb() async {
+    await _db?.close();
+    _db = null;
+    curDbPath = '';
+  }
+
+  static Future<void> resetConnection() async {
+    await LogManager.database('DB', 'Принудительный сброс подключения к БД');
     await _db?.close();
     _db = null;
     curDbPath = '';

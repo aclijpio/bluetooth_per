@@ -195,23 +195,20 @@ class LogManager {
           .cast<File>()
           .toList();
 
-      // Сортируем по времени модификации (старые сначала)
       logFiles
           .sort((a, b) => a.lastModifiedSync().compareTo(b.lastModifiedSync()));
 
       final now = DateTime.now();
 
-      // Удаляем файлы старше максимального возраста
       for (final file in logFiles) {
         final age = now.difference(file.lastModifiedSync());
         if (age > AppConfig.maxLogAge) {
           await file.delete();
           continue;
         }
-        break; // Остальные файлы новее
+        break;
       }
 
-      // Удаляем лишние файлы (если их больше максимального количества)
       final remainingFiles = await logDir
           .list()
           .where((entity) =>
@@ -236,7 +233,6 @@ class LogManager {
     }
   }
 
-  /// Форматирует запись лога
   static String _formatLogEntry(
       LogLevel level, String component, String message) {
     final timestamp =
@@ -247,19 +243,13 @@ class LogManager {
     return '[$timestamp] [$formattedLevel] [$formattedComponent] $message';
   }
 
-  // Убрали проверки уровней - логируем только важные события
-
-  /// Добавляет запись в очередь на запись
   static Future<void> _addToQueue(String logEntry) async {
     _writeQueue.add(logEntry);
 
-    // Ограничиваем размер очереди
     if (_writeQueue.length > 500) {
-      _writeQueue.removeRange(0, 50); // Удаляем старые записи
+      _writeQueue.removeRange(0, 50);
     }
   }
-
-
 
   /// Логирует предупреждение
   static Future<void> warning(String component, String message) async {

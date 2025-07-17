@@ -56,11 +56,12 @@ class TransferCubit extends Cubit<TransferState> {
     final enableResult = await _repository.enableBluetooth();
     enableResult.fold(
       (failure) {
-        if (failure.message.contains('отклонил')) {
+        _loadPending();
+/*        if (failure.message.contains('отклонил')) {
           emit(const BluetoothDisabledState());
         } else {
           emit(const BluetoothDisabledState());
-        }
+        }*/
       },
       (success) {
         _loadPending();
