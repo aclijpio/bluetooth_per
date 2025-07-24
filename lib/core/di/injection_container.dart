@@ -12,16 +12,13 @@ import '../../features/bluetooth/presentation/bloc/transfer_cubit.dart';
 final sl = GetIt.instance;
 
 Future<void> init() async {
-  _registerUtils();
-
-  _registerData();
-
-  _registerExternalDependencies();
-
-  _registerBluetooth();
+  await _registerUtils();
+  await _registerData();
+  await _registerExternalDependencies();
+  await _registerBluetooth();
 }
 
-void _registerUtils() {
+Future<void> _registerUtils() async {
   sl.registerLazySingleton(() => Logger(
         printer: PrettyPrinter(
           methodCount: 2,
@@ -34,15 +31,15 @@ void _registerUtils() {
       ));
 }
 
-void _registerData() {
+Future<void> _registerData() async {
   sl.registerLazySingleton(() => MainData());
 }
 
-void _registerExternalDependencies() {
+Future<void> _registerExternalDependencies() async {
   sl.registerLazySingleton(() => FlutterBlueClassic());
 }
 
-void _registerBluetooth() {
+Future<void> _registerBluetooth() async {
   sl.registerLazySingleton(() => BluetoothTransport(sl()));
 
   sl.registerLazySingleton<BluetoothRepository>(
@@ -64,20 +61,32 @@ void _registerBluetooth() {
   );
 }
 
-/*
-void _registerSharedComponents() {
-  // State management
-  sl.registerFactory(() => AppStateCubit());
-}
-*/
-
-/*
 /// Dispose all resources and clean up dependencies
 Future<void> dispose() async {
-  final repository = sl<BluetoothRepository>();
-  if (repository is BluetoothRepositoryImpl) {
-    await repository.dispose();
+  try {
+    final repository = sl<BluetoothRepository>();
+    if (repository is BluetoothRepositoryImpl) {
+      await repository.dispose();
+    }
+    
+    final logger = sl<Logger>();
+    logger.i('Disposing dependency injection container');
+    
+    await sl.reset();
+  } catch (e) {
+    print('Error disposing DI container: $e');
   }
-  await sl.reset();
 }
-*/
+
+/// Check if all required dependencies are registered
+bool validateDependencies() {
+  try {
+    sl<Logger>();
+    sl<MainData>();
+    sl<FlutterBlueClassic>();
+    sl<BluetoothRepository>();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
